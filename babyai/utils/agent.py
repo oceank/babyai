@@ -56,6 +56,19 @@ class ModelAgent(Agent):
             raise ValueError("stick to one batch size for the lifetime of an agent")
         preprocessed_obs = self.obss_preprocessor(many_obs, device=self.device)
 
+        if self.model.use_vlm: # generate a description and add to the preprocessed_obs
+            # Store the goals in the header of the list, history[0]
+            if len(self.model.history) == 0:
+                self.model.initialize_history_with_goals(many_obs)
+
+            self.model.update_history(preprocessed_obs)
+
+            # generate a text description for the current visual observation
+            # and update the history
+            desc_text_tokens = self.model.generate_descs_and_update_histories()
+
+            preprocessed_obs.desc = self.model.pass_descriptions_to_agent().to(self.device)
+
         with torch.no_grad():
             model_results = self.model(preprocessed_obs, self.memory)
             dist = model_results['dist']
