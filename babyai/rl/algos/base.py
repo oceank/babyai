@@ -6,6 +6,7 @@ from babyai.rl.format import default_preprocess_obss
 from babyai.rl.utils import DictList, ParallelEnv
 from babyai.rl.utils.supervised_losses import ExtraInfoCollector
 
+from einops import rearrange
 
 class BaseAlgo(ABC):
     """The base class for RL algorithms."""
@@ -107,6 +108,16 @@ class BaseAlgo(ABC):
         self.log_reshaped_return = [0] * self.num_procs
         self.log_num_frames = [0] * self.num_procs
 
+    # Add 'desc' element to the input dictionary, preprocessed_obs
+    def add_desc_to_obs(self, preprocessed_obs):
+        # save the current visual observation and the prompt of the language observation in history
+        self.acmodel.update_history(preprocessed_obs)
+
+        # generate a text description for the current visual observation and then update the history
+        desc_text_tokens = self.acmodel.generate_descs_and_update_histories()
+
+        preprocessed_obs.desc = self.acmodel.pass_descriptions_to_agent().to(self.device)
+
     def collect_experiences(self):
         """Collects rollouts and computes advantages.
 
@@ -128,10 +139,31 @@ class BaseAlgo(ABC):
             reward, policy loss, value loss, etc.
 
         """
+
+        # The list has self.num_frames_per_proc elements
+        # Each elmenent is a preprocessed_obs object
+        # preprocessed_obs.image: (batch_size, image_dim)
+        # preprocessed_obs.instr: (batch_size, instr_dim)
+        # preprocessed_obs.desc : (batch_size, max_length)
+        #preprocessed_obs_all= []
+
         for i in range(self.num_frames_per_proc):
             # Do one agent-environment interaction
 
             preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
+
+            if self.acmodel.use_vlm:
+                # Store the goals in the header of the list, history[0]
+                if len(self.acmodel.history) == 0:
+                    self.acmodel.initialize_history_with_goals(self.obs)
+                
+                self.add_desc_to_obs(preprocessed_obs)
+            
+                #preprocessed_obs_all.append(preprocessed_obs)
+                self.obss[i] = preprocessed_obs
+            else:
+                self.obss[i] = self.obs
+
             with torch.no_grad():
                 model_results = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
                 dist = model_results['dist']
@@ -148,7 +180,7 @@ class BaseAlgo(ABC):
 
             # Update experiences values
 
-            self.obss[i] = self.obs
+            #self.obss[i] = self.obs
             self.obs = obs
 
             self.memories[i] = self.memory
@@ -190,6 +222,7 @@ class BaseAlgo(ABC):
         # Add advantage and return to experiences
 
         preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
+        self.add_desc_to_obs(preprocessed_obs)
         with torch.no_grad():
             next_value = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))['value']
 
@@ -205,9 +238,28 @@ class BaseAlgo(ABC):
         # each episode's data is a continuous chunk
 
         exps = DictList()
-        exps.obs = [self.obss[i][j]
-                    for j in range(self.num_procs)
-                    for i in range(self.num_frames_per_proc)]
+
+        if self.acmodel.use_vlm: # all preprocessed_obs are stored in self.obss list
+            exps.obs = DictList()
+            exps.obs.image = self.obss[0].image[None, :]
+            exps.obs.instr = self.obss[0].instr[None, :]
+            exps.obs.desc  = self.obss[0].desc[None , :]
+            for preprocessed_obs in self.obss[1:]: # concatenate along the time dim
+                exps.obs.image = torch.cat([exps.obs.image, preprocessed_obs.image[None, :]], dim=0)
+                exps.obs.instr = torch.cat([exps.obs.instr, preprocessed_obs.instr[None, :]], dim=0)
+                exps.obs.desc  = torch.cat([exps.obs.desc, preprocessed_obs.desc[None, :]]  , dim=0)
+            exps.obs.image = rearrange(exps.obs.image, 't b h w c -> (b t) h w c')
+            exps.obs.instr = rearrange(exps.obs.instr, 't b l -> (b t) l')
+            exps.obs.desc  = rearrange(exps.obs.desc, 't b l -> (b t) l')
+        else: # all raw obs are stored in self.obss
+            exps.obs = [
+                self.obss[i][j]
+                for j in range(self.num_procs)
+                for i in range(self.num_frames_per_proc)
+                ]
+            # Preprocess experiences
+            exps.obs = self.preprocess_obss(exps.obs, device=self.device)
+ 
         # In commments below T is self.num_frames_per_proc, P is self.num_procs,
         # D is the dimensionality
 
@@ -226,10 +278,6 @@ class BaseAlgo(ABC):
 
         if self.aux_info:
             exps = self.aux_info_collector.end_collection(exps)
-
-        # Preprocess experiences
-
-        exps.obs = self.preprocess_obss(exps.obs, device=self.device)
 
         # Log some values
 
