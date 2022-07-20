@@ -1,3 +1,4 @@
+import copy
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -7,6 +8,8 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import babyai.rl
 from babyai.rl.utils.supervised_losses import required_heads
 
+from transformers import top_k_top_p_filtering
+from einops import rearrange
 
 # From https://github.com/ikostrikov/pytorch-a2c-ppo-acktr/blob/master/model.py
 def initialize_parameters(m):
@@ -60,11 +63,39 @@ class ImageBOWEmbedding(nn.Module):
 
 
 class ACModel(nn.Module, babyai.rl.RecurrentACModel):
-    def __init__(self, obs_space, action_space,
-                 image_dim=128, memory_dim=128, instr_dim=128,
-                 use_instr=False, lang_model="gru", use_memory=False,
-                 arch="bow_endpool_res", aux_info=None):
+    def __init__(
+        self, obs_space, action_space,
+        image_dim=128, memory_dim=128, instr_dim=128,
+        use_instr=False, lang_model="gru", use_memory=False,
+        arch="bow_endpool_res", aux_info=None,
+        use_vlm=False, vlm=None, tokenizer=None,
+        max_desc_len=0, max_lang_model_input_len=0, max_history_window_vlm=0,
+        top_k=50, top_p=0.95, sample_next_token=True):
+
         super().__init__()
+
+        if use_vlm and vlm is None:
+            raise ValueError(f"use_vlm is {use_vlm}, but vlm is {vlm}. Expected a vlm passed in")
+        self.use_vlm = use_vlm
+        if self.use_vlm:
+            # Use the Word Emebdding of the GPT2 model
+            self.tokenizer=tokenizer
+            self.desc_vocabulary_size = vlm.wte.num_embeddings
+            self.desc_embedding_dim   = vlm.wte.embedding_dim
+            self.vlm_BOW_Embedding = ImageBOWEmbedding(
+                obs_space['image'],
+                self.desc_embedding_dim)
+            
+            # each elem in self.history is a tuple, (Ov, Ol)
+            # Ov: (batch, 3, 7, 7)
+            # Ol: [instruction_length + description_length], sequence of tokens
+            self.history = []
+            self.max_history_window_vlm = max_history_window_vlm
+            self.max_desc_len = max_desc_len # the maximum length of tokens for a generated sentence at one time step
+            self.max_lang_model_input_len = max_lang_model_input_len # the maximum length of tokens the language model and tokenizer can handel
+            self.top_k = top_k
+            self.top_p = top_p
+            self.sample_next_token = sample_next_token
 
         endpool = 'endpool' in arch
         use_bow = 'bow' in arch
@@ -120,7 +151,13 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
                     self.instr_rnn = nn.GRU(
                         self.instr_dim, gru_dim, batch_first=True,
                         bidirectional=(self.lang_model in ['bigru', 'attgru']))
-                    self.final_instr_dim = self.instr_dim
+                    if self.use_vlm:
+                        # only use unidirectional GRU
+                        self.desc_rnn = nn.GRU(
+                                self.desc_embedding_dim, gru_dim, batch_first=True,
+                                bidirectional=False)
+
+                    self.final_instr_dim = self.instr_dim # affect the output dim of the GRU
                 else:
                     kernel_dim = 64
                     kernel_sizes = [3, 4]
@@ -163,6 +200,11 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
 
         # Initialize parameters correctly
         self.apply(initialize_parameters)
+
+        # Avoid the impact of the above parameter initialization
+        if self.use_vlm:
+            self.vlm=vlm
+            self.tokenizer=tokenizer
 
         # Define head for extra info
         if self.aux_info:
@@ -217,6 +259,11 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
     def forward(self, obs, memory, instr_embedding=None):
         if self.use_instr and instr_embedding is None:
             instr_embedding = self._get_instr_embedding(obs.instr)
+            if self.use_vlm:
+                goal_and_desc_embedding = self._get_desc_embedding(obs.desc)
+                # concatenate the instruction and description
+                # desc_embedding: (batch_size, length, desc_embedding_dim)
+                instr_embedding = goal_and_desc_embedding
         if self.use_instr and self.lang_model == "attgru":
             # outputs: B x L x D
             # memory: B x M
@@ -246,7 +293,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
             for controller in self.controllers:
                 out = controller(x, instr_embedding)
                 if self.res:
-                    out += x
+                    out = out + x
                 x = out
         x = F.relu(self.film_pool(x))
         x = x.reshape(x.shape[0], -1)
@@ -310,3 +357,200 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
 
         else:
             ValueError("Undefined instruction architecture: {}".format(self.use_instr))
+    
+    # === functions for generating a text description based on the history of visual and language observations ===
+    
+    # Input
+    #   descs: 2-D tensor of tokens with padding tokens.
+    #          Its shape is (batch, self.max_lang_model_input_len)
+    # Output
+    #   hidden: 2-D tensor of hidden state for next tokens.
+    #           Its shape is (batch, the GRU dimention)
+    def _get_desc_embedding(self, desc):
+        lengths = (desc != 50256).sum(1).long()
+        if self.lang_model == 'gru':
+            out, _ = self.desc_rnn(self.vlm.wte(desc))
+            hidden = out[range(len(lengths)), lengths-1, :]
+            return hidden
+
+        else:
+            ValueError("Undefined description architecture: {}".format(self.use_instr))
+
+    # Input:
+    #   logits: (batch_size, vocabulary_size)
+    # Output:
+    #   tokens: (batch_size,)
+    def logits_to_token(self, logits, top_k=50, top_p=0.95, sample_next_token=True):
+        filter = top_k_top_p_filtering(logits, top_k, top_p)
+        probabilities = torch.nn.functional.softmax(filter, dim=-1)
+        if sample_next_token:
+            tokens = torch.multinomial(probabilities, num_samples=1).squeeze(dim=1)
+        else:
+            tokens = torch.argmax(probabilities, dim=-1)
+        return tokens
+
+    # Inputs:
+    #   images: (batch, times, channel, height, width)
+    #   texts : a list of text, len(texts)==batch_size
+    # Output:
+    #   encoded_input: a transformers BatchEncoding object (a dict)
+    def prepare_vlm_input(self, images, texts):
+        device = images.device
+        
+        encoded_input = self.tokenizer(
+            texts,
+            return_tensors="pt",
+            max_length=self.max_lang_model_input_len, padding="max_length", truncation=True
+        )
+
+        batch_size, num_tokens = encoded_input['input_ids'].shape
+        media_locations = torch.zeros(encoded_input['input_ids'].shape, dtype=torch.bool)
+        for sample_idx in range(batch_size):
+            media_start_locs = [ idx for idx in range(num_tokens-2)
+                if (encoded_input['input_ids'][sample_idx][idx]==27
+                and encoded_input['input_ids'][sample_idx][idx+1]==9060
+                and encoded_input['input_ids'][sample_idx][idx+2]==29)
+            ]
+        for loc in media_start_locs:
+            media_locations[sample_idx,loc] = True
+        encoded_input['media_locations'] = media_locations
+        
+        images = rearrange(images, 'b t c h w -> (b t) c h w')
+
+        # images shape: (batch_size*times, channel, height, width)
+        # image_embedding shape: (batch_size*times, featture_dim, height, width)
+        image_embedding = self.vlm_BOW_Embedding(images)
+        # convert to the shape shape: (batch_size, times, height*width, feature_dim)
+        image_embedding = rearrange(image_embedding, '(b t) d h w-> b t (h w) d', b=batch_size)
+        encoded_input['image_embeds'] = image_embedding
+
+        for key in encoded_input:
+            encoded_input[key] = encoded_input[key].to(device)
+             
+        return encoded_input
+    
+    # Functionality:
+    #   Generate a text description for the current visual observation given the current history
+    # Note:
+    #   Padding tokens are used in input encoding, so track the last non-masked token
+    #   and use its index in the input to track the index of output hidden state of
+    #   the next predicted token.
+    # Steps:
+    #   Call self.vlm to generate the next token
+    #   append the new token to the current sequence of tokens
+    #   if the new token is 'end of text' or the number of new tokens reaches self.max_desc_len, stop
+    #   otherwise, continue to generate a new token
+    # Input:
+    #   encoded_input: a dict of encoded text with keys
+    #       'input_ids', 'attention_mask', 'media_locations', 'image_embeds'
+    # Output:
+    #   generated_tokens: batch of sequences of tokens where each sequnce represents a text description
+    #   generated_sentences: a list of strings where each string is a text description
+    def describe_visual_observations(self, encoded_input):
+        self.vlm.eval()
+        with torch.no_grad():
+            input_ids_lens = encoded_input['attention_mask'].sum(dim=1)
+
+            assert not torch.any(input_ids_lens > (self.max_lang_model_input_len - self.max_desc_len))
+            
+            batch_idx = range(encoded_input['input_ids'].shape[0])
+            generated_tokens = None
+            for i in range(self.max_desc_len):
+                next_token_idx = input_ids_lens + i
+                last_nonmasked_token_idx = next_token_idx - 1
+                outputs = self.vlm(**encoded_input, return_dict=True)
+                # Note: !!!
+                # The hidden state representing the next predicted token locates at the index,
+                # last_nonmasked_token_idx, in outputs['logits']
+                logits = outputs['logits'][batch_idx, last_nonmasked_token_idx, :]
+                next_tokens = self.logits_to_token(
+                    logits,
+                    self.top_k,
+                    self.top_p,
+                    self.sample_next_token)
+
+                # Append the new token to the sentence and update the attention mask accordingly
+                encoded_input['attention_mask'][batch_idx, next_token_idx] = 1
+                encoded_input['input_ids'][batch_idx, next_token_idx] = next_tokens
+                encoded_input['media_locations'][batch_idx, next_token_idx] = False
+
+                if i == 0:
+                    generated_tokens = next_tokens
+                else:
+                    generated_tokens = torch.cat((generated_tokens, next_tokens), dim=-1)
+
+            generated_sentences = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+            return generated_tokens, generated_sentences
+
+    # Functionality:
+    #   prepare input encoding for generate a text description for the current visual observation
+    #   call self.describe_visual_observations() to do the text generation
+    #   update the self.history by appending the generated text description
+    def generate_descs_and_update_histories(self):
+        images = None
+
+        texts = copy.deepcopy(self.history[0])
+        batch_size = len(texts)
+        for i, (Ov, Ol) in enumerate(self.history[1:]): # exclude goals
+            ## Ov: (batch_size, times=1, image_embeding_dim=147)
+            # Ov: (batch_size, times=1, channel, height, width)
+            # Ol: a list of texts, each of which corresponding to one sample in the batch
+            if i == 0:
+                images = Ov
+            else:
+                images = torch.cat([images, Ov], dim=1)
+
+            for b_idx in range(batch_size):
+                texts[b_idx] = texts[b_idx] + Ol[b_idx]
+
+        # images: (batch_size, times, channel, height, width)
+        encoded_input = self.prepare_vlm_input(images, texts)
+
+        # generated_tokens: (batch, self.max_sent_len)
+        # generated_sentences:  a llist of strings
+        generated_tokens, generated_sentences = self.describe_visual_observations(encoded_input)
+
+        # update the history: self.history
+        for b_idx in range(batch_size):           
+            self.history[-1][1][b_idx] = self.history[-1][1][b_idx] + generated_sentences[b_idx]
+        
+        return generated_tokens
+    
+    # Input:
+    #   many_obs: a list of raw observations from environments
+    def initialize_history_with_goals(self, many_obs):
+        self.history.append([])
+        for obs in many_obs:
+            self.history[0].append("Goal: " + obs['mission'])
+        
+    # Input:
+    #   many_obs: a list of observations
+    def update_history(self, preprocessed_obs):
+        batch_size = preprocessed_obs.image.shape[0]
+
+        # Remove the oldest one that is at the index 1.
+        # The goal is at the index 0, and should not be counted against self.max_history_window_vlm
+        if len(self.history) == self.max_history_window_vlm+1:
+            self.history.pop(1)
+        
+        # reshape dimentions of visual observations: (batch, 7, 7, 3) -> (batch, time=1, 147)
+        # Ov = rearrange(preprocessed_obs.image, 'b h w d -> b () (h w d)')
+        # Ov: (batch_size, times=1, channel, height, width)
+        Ov = rearrange(preprocessed_obs.image, 'b h w c -> b () c h w')
+
+        # add the tag '<image>' and the prompt 'Description:' to initialize the text description
+        # Node: the tag '<image>' is not passed to the RL agent as the part of the language observation
+        Ol = []
+        for _ in range(batch_size):
+            Ol.append("<image> Description: ")
+
+        self.history.append((Ov, Ol))
+
+    # pass instruction+desc_text as the text information to the RL agent
+    # Removing "<image>" before passing the text observation to the RL agent
+    def pass_descriptions_to_agent(self):
+        encoded_input = self.tokenizer(
+                [x+y[7:] for (x, y) in zip(self.history[0], self.history[-1][1])], 
+                max_length=self.max_lang_model_input_len, padding="max_length", truncation=True,
+                return_tensors='pt')
+        return encoded_input['input_ids']
