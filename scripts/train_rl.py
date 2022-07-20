@@ -24,6 +24,13 @@ from babyai.evaluate import batch_evaluate
 from babyai.utils.agent import ModelAgent
 from gym_minigrid.wrappers import RGBImgPartialObsWrapper
 
+from transformers import GPT2LMHeadModel, GPT2Tokenizer, top_k_top_p_filtering, get_linear_schedule_with_warmup
+from vit_pytorch.vit import ViT
+from vit_pytorch.extractor import Extractor
+
+from FlamingoGPT2.model import FlamingoGPT2
+from FlamingoGPT2.utils import * # train, visualize_training_stats, load_processed_raw_data, prepare_dataload
+from einops import rearrange
 
 # Parse arguments
 parser = ArgumentParser()
@@ -45,6 +52,22 @@ parser.add_argument("--ppo-epochs", type=int, default=4,
                     help="number of epochs for PPO (default: 4)")
 parser.add_argument("--save-interval", type=int, default=50,
                     help="number of updates between two saves (default: 50, 0 means no saving)")
+parser.add_argument("--use-vlm", action="store_true", default=False,
+                    help="use a visual-language model (VLM) to assist the RL agent")
+parser.add_argument("--max-history-window-vlm", type=int, default=16,
+                    help="maximum number of observations that can be hosted in the history for VLM (default: 16)")
+parser.add_argument("--max-lang-model-input-len", type=int, default=1024,
+                    help="maximum number of tokens in one sequence that the VLM's language model can handel (default: 1024)")
+parser.add_argument("--max-desc-len", type=int, default=20,
+                    help="maxmium number of tokens in a newly generated sentence (default: 20)")
+parser.add_argument("--top-k", type=int, default=50,
+                    help="The number of tokens with the top predicted probabilities (default: 50)")
+parser.add_argument("--top-p", type=float, default=0.95,
+                    help="The group of tokens where the summation of their predicted probabilities is >= <top-p> (default: 0.95)")
+parser.add_argument("--sample-next-token", action="store_true", default=False,
+                    help="Get the next token by sampling the predicted probability distribution over the vocabulary (default: True)")
+
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
@@ -63,6 +86,7 @@ for i in range(args.procs):
 suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 instr = args.instr_arch if args.instr_arch else "noinstr"
 mem = "mem" if not args.no_mem else "nomem"
+vlm_info="vlm" if args.use_vlm else "novlm"
 model_name_parts = {
     'env': args.env,
     'algo': args.algo,
@@ -72,8 +96,9 @@ model_name_parts = {
     'seed': args.seed,
     'info': '',
     'coef': '',
+    'vlm' : vlm_info,
     'suffix': suffix}
-default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{suffix}".format(**model_name_parts)
+default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{vlm}_{suffix}".format(**model_name_parts)
 if args.pretrained_model:
     default_model_name = args.pretrained_model + '_pretrained_' + default_model_name
 args.model = args.model.format(**model_name_parts) if args.model else default_model_name
@@ -87,15 +112,86 @@ if 'emb' in args.arch:
 else:
     obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
 
+# Parameters for VLM
+vlm = None
+tokenizer=None
+
+if args.use_vlm:
+    print(f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===")
+    print(f"[Setup] Use VLM to help the anget to explore the grid world")
+    print(f"[Setup] Create a tokenizer and GPT2 language model")
+
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2", return_dict=True)
+    tokenizer.pad_token = tokenizer.eos_token # pad token
+
+    lang_model = GPT2LMHeadModel.from_pretrained(
+        "gpt2",
+        pad_token_id=tokenizer.pad_token_id)
+
+    lang_model_config = lang_model.config
+    dim_lang_embeds = lang_model_config.n_embd
+    depth = lang_model_config.n_layer
+    
+    dim_img_embeds = dim_lang_embeds #128
+
+    # first take your trained image encoder and wrap it in an adapter that returns the image embeddings
+    # here we use the ViT from the vit-pytorch library
+    print(f"[Setup] Create a visual encoder using ViT")
+    vit = ViT(
+        image_size = 256,
+        patch_size = 32,
+        num_classes = 1000,
+        dim = dim_img_embeds,
+        depth = 6,
+        heads = 16,
+        mlp_dim = 2048,
+        dropout = 0.1,
+        emb_dropout = 0.1
+    )
+
+    vit = Extractor(vit, return_embeddings_only = True)
+
+    print(f"[Setup] Create a Flamingo Model")
+    vlm = FlamingoGPT2(
+        lang_model=lang_model,       # pretrained language model GPT2 with a language header
+        dim = dim_lang_embeds,       # dimensions of the embedding
+        depth = depth,               # depth of the language model
+        # variables below are for Flamingo trainable modules
+        heads = 8,                   # attention heads
+        ff_mult=4,                   # 
+        dim_head = 64,               # dimension per attention head
+        img_encoder = vit,           # plugin your image encoder (this can be optional if you pass in the image embeddings separately, but probably want to train end to end given the perceiver resampler)
+        media_token_id = 3,          # the token id representing the [media] or [image]
+        cross_attn_every = 3,        # how often to cross attend
+        perceiver_num_latents = 64,  # perceiver number of latents, should be smaller than the sequence length of the image tokens
+        perceiver_depth = 2,         # perceiver resampler depth
+        perceiver_num_time_embeds = args.max_history_window_vlm,#16,
+        only_attend_immediate_media=True
+    )
+
+    
+
 # Define actor-critic model
 acmodel = utils.load_model(args.model, raise_not_found=False)
 if acmodel is None:
     if args.pretrained_model:
         acmodel = utils.load_model(args.pretrained_model, raise_not_found=True)
     else:
-        acmodel = ACModel(obss_preprocessor.obs_space, envs[0].action_space,
-                          args.image_dim, args.memory_dim, args.instr_dim,
-                          not args.no_instr, args.instr_arch, not args.no_mem, args.arch)
+        acmodel = ACModel(
+            obss_preprocessor.obs_space, envs[0].action_space,
+            args.image_dim, args.memory_dim, args.instr_dim,
+            not args.no_instr, args.instr_arch, not args.no_mem, args.arch,
+            # the following parameters are used for using the vlm
+            use_vlm=args.use_vlm,
+            vlm=vlm,
+            tokenizer=tokenizer,
+            max_desc_len=args.max_desc_len,
+            max_lang_model_input_len=args.max_lang_model_input_len,
+            max_history_window_vlm=args.max_history_window_vlm,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            sample_next_token=args.sample_next_token
+        )
 
 obss_preprocessor.vocab.save()
 utils.save_model(acmodel, args.model)
