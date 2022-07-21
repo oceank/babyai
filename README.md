@@ -24,9 +24,6 @@ Requirements of Major Packages:
    - einops-exts 0.0.3
    - vit-pytorch 0.35.2
    - transformers 4.19.4
-   - nvidia-apex
-   - nvidia-apex-proc
-   - matplotb
    - tensorboardX
 
 ### Step 1: create a conda environment
@@ -39,12 +36,22 @@ cd babyai
 conda env create -f environment.yaml
 source activate cgsul
 ```
-### Step 2: install pytorch and nvidia-apex
+
+### Step 2: install pytorch and cudatoolkit 11.3
+
 ```
 conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
-conda install nvidia-apex nvidia-apex-proc -c conda-forge
 ```
-### Step 2: install gym-minigrid, babyai and FlamingoGPT2 using in the editable mode
+
+### Step 3: install FlamingoGPT2, gym-minigrid, and babyai using in the editable mode
+
+#### FlamingoGPT2
+```
+cd ..
+git clone git@github.com:oceank/cgsul.git
+cd cgsul
+pip install --editable .
+```
 
 #### gym-minigrid
 ```
@@ -60,29 +67,25 @@ cd ../babyai
 pip install --editable .
 ```
 
-#### FlamingoGPT2
-```
-cd ..
-git clone git@github.com:oceank/cgsul.git
-cd cgsul
-pip install --editable .
-```
+### Step 4: Setup the BabyAI Storage
 
-Finally, [follow these instructions](###babyai-storage-path)
+#### Setup the environment BABYAI_STORAGE
 
-
-### Step 3: Setup the BabyAI Storage Path
-
-Add this line to `.bashrc` (Linux), or `.bash_profile` (Mac).
+In `~/.bashrc` (Linux), add the following line where `/PATH TO BABYAI REPOSITORY PARENT>` is the folder where you cloned the **cgsul** branch of **oceank/babyai.git** repo earlier.
 
 ```
-export BABYAI_STORAGE='/<PATH>/<TO>/<BABYAI>/<REPOSITORY>/<PARENT>'
+export BABYAI_STORAGE='/<PATH TO BABYAI REPOSITORY PARENT>'
 ```
 
-where `/<PATH>/<TO>/<BABYAI>/<REPOSITORY>/<PARENT>` is the folder where you typed `git clone https://github.com/mila-iqia/babyai.git` earlier.
+#### Create folders **models** and **logs** in the BABYAI_STORAGE directory
 
-Models and logs will be produced in this directory, in the folders `**models**` and `**logs**` respectively.
+Models and logs will be produced in the folders **models** and **logs** respectively.
 
+```
+cd ${BABYAI_STORAGE}
+mkdir models
+mkdir logs
+```
 
 ## Other useful information are:
 - [Codebase Structure](babyai/README.md)
