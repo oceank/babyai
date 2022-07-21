@@ -222,7 +222,9 @@ class BaseAlgo(ABC):
         # Add advantage and return to experiences
 
         preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
-        self.add_desc_to_obs(preprocessed_obs)
+        if self.acmodel.use_vlm:
+            self.add_desc_to_obs(preprocessed_obs)
+
         with torch.no_grad():
             next_value = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))['value']
 
