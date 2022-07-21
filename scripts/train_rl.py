@@ -169,7 +169,7 @@ if args.use_vlm:
         only_attend_immediate_media=True
     )
 
-    
+
 
 # Define actor-critic model
 acmodel = utils.load_model(args.model, raise_not_found=False)
@@ -328,10 +328,17 @@ while status['num_frames'] < args.frames:
 
         # Testing the model before saving
         agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
+
+        history = acmodel.history
+        acmodel.history = []
         agent.model = acmodel
         agent.model.eval()
+
         logs = batch_evaluate(agent, test_env_name, args.val_seed, args.val_episodes, pixel=use_pixel)
+
         agent.model.train()
+        acmodel.history = history
+
         mean_return = np.mean(logs["return_per_episode"])
         success_rate = np.mean([1 if r > 0 else 0 for r in logs['return_per_episode']])
         save_model = False

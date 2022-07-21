@@ -29,4 +29,10 @@ def load_model(model_name, raise_not_found=True):
 def save_model(model, model_name):
     path = get_model_path(model_name)
     utils.create_folders_if_necessary(path)
-    torch.save(model, path)
+    if model.use_vlm: # Do not save the history to the model file
+        history = model.history
+        model.history = []
+        torch.save(model, path)
+        model.history = history
+    else:
+        torch.save(model, path)
