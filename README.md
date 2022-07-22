@@ -69,9 +69,9 @@ pip install --editable .
 
 ### Step 4: Setup the BabyAI Storage
 
-#### Setup the environment BABYAI_STORAGE
+#### Setup the environment variable BABYAI_STORAGE
 
-In `~/.bashrc` (Linux), add the following line where `/PATH TO BABYAI REPOSITORY PARENT>` is the folder where you cloned the **cgsul** branch of **oceank/babyai.git** repo earlier.
+In `~/.bashrc` (Linux), add the following line where `/PATH TO BABYAI REPOSITORY PARENT>` is the folder where you cloned the **cgsul** branch of **oceank/babyai.git** repo earlier. To make the new environment variable visiable in the current terminal, run `source ~/.bashrc`.
 
 ```
 export BABYAI_STORAGE='/<PATH TO BABYAI REPOSITORY PARENT>'
