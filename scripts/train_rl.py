@@ -334,7 +334,13 @@ while status['num_frames'] < args.frames:
         agent.model = acmodel
         agent.model.eval()
 
-        logs = batch_evaluate(agent, test_env_name, args.val_seed, args.val_episodes, pixel=use_pixel)
+        logs = batch_evaluate(
+            agent,
+            test_env_name,
+            args.val_seed,
+            args.val_episodes,
+            pixel=use_pixel,
+            concurrent_episodes=args.val_concurrent_episodes)
 
         agent.model.train()
         acmodel.history = history

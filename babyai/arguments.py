@@ -81,6 +81,8 @@ class ArgumentParser(argparse.ArgumentParser):
                             help="number of epochs between two validation checks (default: 1)")
         self.add_argument("--val-episodes", type=int, default=500,
                             help="number of episodes used to evaluate the agent, and to evaluate validation accuracy")
+        self.add_argument("--val-concurrent-episodes", type=int, default=256,
+                            help="number of episodes currently run during validation")
 
     def parse_args(self):
         """
