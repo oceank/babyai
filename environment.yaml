@@ -1,11 +1,10 @@
-name: cgsul2
+name: cgsul
 channels:
   - pytorch
   - defaults
   - conda-forge
 dependencies:
   - python=3.10
-  - pytorch=1.11.0
   - numpy
   - blosc
   - pip
