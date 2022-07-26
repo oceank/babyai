@@ -10,6 +10,7 @@ from babyai.rl.utils.supervised_losses import required_heads
 
 from transformers import top_k_top_p_filtering
 from einops import rearrange
+import time
 
 # From https://github.com/ikostrikov/pytorch-a2c-ppo-acktr/blob/master/model.py
 def initialize_parameters(m):
@@ -257,6 +258,8 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         return self.memory_dim
 
     def forward(self, obs, memory, instr_embedding=None):
+        start_time = time.time()
+
         if self.use_instr and instr_embedding is None:
             instr_embedding = self._get_instr_embedding(obs.instr)
             if self.use_vlm:
@@ -317,7 +320,8 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         x = self.critic(embedding)
         value = x.squeeze(1)
 
-        return {'dist': dist, 'value': value, 'memory': memory, 'extra_predictions': extra_predictions}
+        time_cost_mi = time.time() - start_time
+        return {'time_cost':time_cost_mi, 'dist': dist, 'value': value, 'memory': memory, 'extra_predictions': extra_predictions}
 
     def _get_instr_embedding(self, instr):
         lengths = (instr != 0).sum(1).long()
@@ -395,14 +399,21 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
     # Output:
     #   encoded_input: a transformers BatchEncoding object (a dict)
     def prepare_vlm_input(self, images, texts):
+        time_cost = {
+            "tk":0.0, "vlm_BOW": 0.0,
+            'media_loc':0.0, 'toGPU':0.0, "img_reshape": 0.0}
+        time_start = time.time()
+
         device = images.device
-        
+        time_start_tk = time.time()
         encoded_input = self.tokenizer(
             texts,
             return_tensors="pt",
             max_length=self.max_lang_model_input_len, padding="max_length", truncation=True
         )
+        time_cost['tk'] = time.time() - time_start_tk
 
+        time_start_ml = time.time()
         batch_size, num_tokens = encoded_input['input_ids'].shape
         media_locations = torch.zeros(encoded_input['input_ids'].shape, dtype=torch.bool)
         for sample_idx in range(batch_size):
@@ -414,20 +425,33 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         for loc in media_start_locs:
             media_locations[sample_idx,loc] = True
         encoded_input['media_locations'] = media_locations
-        
+        time_cost['media_loc'] = time.time() - time_start_ml
+
         images = rearrange(images, 'b t c h w -> (b t) c h w')
 
         # images shape: (batch_size*times, channel, height, width)
         # image_embedding shape: (batch_size*times, featture_dim, height, width)
+        time_start_bow = time.time()
         image_embedding = self.vlm_BOW_Embedding(images)
+        time_cost['vlm_BOW'] = time.time() - time_start_bow
+
         # convert to the shape shape: (batch_size, times, height*width, feature_dim)
         image_embedding = rearrange(image_embedding, '(b t) d h w-> b t (h w) d', b=batch_size)
         encoded_input['image_embeds'] = image_embedding
 
+        time_start_toGpu = time.time()
         for key in encoded_input:
             encoded_input[key] = encoded_input[key].to(device)
-             
-        return encoded_input
+        time_cost['toGPU'] = time.time() - time_start_toGpu
+
+        time_cost['img_reshape'] = time.time() - time_start
+        current_total_noReshape = 0
+        for key in time_cost:
+            if key != "img_reshape":
+                current_total_noReshape += time_cost[key]
+        time_cost['img_reshape'] -= current_total_noReshape
+
+        return encoded_input, time_cost
     
     # Functionality:
     #   Generate a text description for the current visual observation given the current history
@@ -447,6 +471,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
     #   generated_tokens: batch of sequences of tokens where each sequnce represents a text description
     #   generated_sentences: a list of strings where each string is a text description
     def describe_visual_observations(self, encoded_input):
+        time_cost = {"generate_tokens":0.0, "decoding": 0.0}
         self.vlm.eval()
         with torch.no_grad():
             input_ids_lens = encoded_input['attention_mask'].sum(dim=1)
@@ -455,6 +480,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
             
             batch_idx = range(encoded_input['input_ids'].shape[0])
             generated_tokens = None
+            start_time = time.time()
             for i in range(self.max_desc_len):
                 next_token_idx = input_ids_lens + i
                 last_nonmasked_token_idx = next_token_idx - 1
@@ -478,9 +504,12 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
                     generated_tokens = next_tokens
                 else:
                     generated_tokens = torch.cat((generated_tokens, next_tokens), dim=-1)
+            time_cost['generate_tokens'] = time.time() - start_time
 
+            start_time = time.time()
             generated_sentences = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-            return generated_tokens, generated_sentences
+            time_cost['decoding'] = time.time() - start_time
+            return generated_tokens, generated_sentences, time_cost
 
     # Functionality:
     #   prepare input encoding for generate a text description for the current visual observation
@@ -504,17 +533,21 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
                 texts[b_idx] = texts[b_idx] + Ol[b_idx]
 
         # images: (batch_size, times, channel, height, width)
-        encoded_input = self.prepare_vlm_input(images, texts)
+        encoded_input, time_cost = self.prepare_vlm_input(images, texts)
 
         # generated_tokens: (batch, self.max_sent_len)
         # generated_sentences:  a llist of strings
-        generated_tokens, generated_sentences = self.describe_visual_observations(encoded_input)
+        time_start = time.time()
+        generated_tokens, generated_sentences, time_cost_temp = self.describe_visual_observations(encoded_input)
+        time_cost['generate_sentence'] = time.time() - time_start
+        for key in time_cost_temp:
+            time_cost[key] = time_cost_temp[key]
 
         # update the history: self.history
         for b_idx in range(batch_size):           
             self.history[-1][1][b_idx] = self.history[-1][1][b_idx] + generated_sentences[b_idx]
         
-        return generated_tokens
+        return generated_tokens, time_cost
     
     # Input:
     #   many_obs: a list of raw observations from environments

@@ -276,9 +276,10 @@ total_start_time = time.time()
 best_success_rate = 0
 best_mean_return = 0
 test_env_name = args.env
+#from scalene import scalene_profiler
+#scalene_profiler.start()
 while status['num_frames'] < args.frames:
     # Update parameters
-
     update_start_time = time.time()
     logs = algo.update_parameters()
     update_end_time = time.time()
@@ -366,3 +367,4 @@ while status['num_frames'] < args.frames:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
 
 print("finished")
+#scalene_profiler.stop()

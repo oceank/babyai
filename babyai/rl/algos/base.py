@@ -7,6 +7,22 @@ from babyai.rl.utils import DictList, ParallelEnv
 from babyai.rl.utils.supervised_losses import ExtraInfoCollector
 
 from einops import rearrange
+import time
+time_cost = {
+    "text_generation":[],
+    "desc_and_update": [],
+    "generate_sentence": [],
+    "generate_tokens": [],
+    "decoding": [],
+    "tk":[],
+    "vlm_BOW": [],
+    "img_reshape": [],
+    "media_loc": [],
+    "toGPU": [],
+    "update_history": [],
+    "pass_desc": [],
+    "model_inference":[]
+}
 
 class BaseAlgo(ABC):
     """The base class for RL algorithms."""
@@ -110,13 +126,45 @@ class BaseAlgo(ABC):
 
     # Add 'desc' element to the input dictionary, preprocessed_obs
     def add_desc_to_obs(self, preprocessed_obs):
+        time_start_all = time.time()
+
+        time_start = time.time()
         # save the current visual observation and the prompt of the language observation in history
         self.acmodel.update_history(preprocessed_obs)
+        time_cost['update_history'].append(time.time() - time_start)
 
+        time_start = time.time()
         # generate a text description for the current visual observation and then update the history
-        desc_text_tokens = self.acmodel.generate_descs_and_update_histories()
+        desc_text_tokens, time_cost_temp = self.acmodel.generate_descs_and_update_histories()
+        time_cost['desc_and_update'].append(time.time() - time_start)
+        for key in time_cost_temp:
+            time_cost[key].append(time_cost_temp[key])
 
+        time_start = time.time()
         preprocessed_obs.desc = self.acmodel.pass_descriptions_to_agent().to(self.device)
+        time_cost['pass_desc'].append(time.time() - time_start)
+
+        time_cost['text_generation'].append(time.time() - time_start_all)
+
+    def show_time_cost(self):
+        num_samples = len(time_cost['model_inference'])
+        num_decials = 6
+        msg = f"[number of samples: {num_samples}] "
+        msg += f"mi: {round(sum(time_cost['model_inference'])/num_samples, num_decials)}"
+        if self.acmodel.use_vlm:
+            msg += f", tg: {round(sum(time_cost['text_generation'])/num_samples, num_decials)} | "
+            msg += f"uh: {round(sum(time_cost['update_history'])/num_samples, num_decials)}"
+            msg += f", pd: {round(sum(time_cost['pass_desc'])/num_samples, num_decials)}"
+            msg += f", du: {round(sum(time_cost['desc_and_update'])/num_samples, num_decials)} | "
+            msg += f"tk: {round(sum(time_cost['tk'])/num_samples, num_decials)}"
+            msg += f", vB: {round(sum(time_cost['vlm_BOW'])/num_samples, num_decials)}"
+            msg += f", ir: {round(sum(time_cost['img_reshape'])/num_samples, num_decials)}"
+            msg += f", ml: {round(sum(time_cost['media_loc'])/num_samples, num_decials)}"
+            msg += f", tG: {round(sum(time_cost['toGPU'])/num_samples, num_decials)}"
+            msg += f", gs: {round(sum(time_cost['generate_sentence'])/num_samples, num_decials)} | "
+            msg += f"gt: {round(sum(time_cost['generate_tokens'])/num_samples, num_decials)}"
+            msg += f", dd: {round(sum(time_cost['decoding'])/num_samples, num_decials)}"
+        print(msg)
 
     def collect_experiences(self):
         """Collects rollouts and computes advantages.
@@ -158,14 +206,18 @@ class BaseAlgo(ABC):
                     self.acmodel.initialize_history_with_goals(self.obs)
                 
                 self.add_desc_to_obs(preprocessed_obs)
-            
+
                 #preprocessed_obs_all.append(preprocessed_obs)
                 self.obss[i] = preprocessed_obs
             else:
                 self.obss[i] = self.obs
 
             with torch.no_grad():
+                #start_mi = time.time()
                 model_results = self.acmodel(preprocessed_obs, self.memory * self.mask.unsqueeze(1))
+                #time_cost['model_inference'].append(time.time() - start_mi)
+                time_cost['model_inference'].append(model_results['time_cost'])
+
                 dist = model_results['dist']
                 value = model_results['value']
                 memory = model_results['memory']
@@ -217,7 +269,8 @@ class BaseAlgo(ABC):
 
             self.log_episode_return *= self.mask
             self.log_episode_reshaped_return *= self.mask
-            self.log_episode_num_frames *= self.mask
+
+        self.show_time_cost()
 
         # Add advantage and return to experiences
 
