@@ -329,8 +329,10 @@ while status['num_frames'] < args.frames:
         # Testing the model before saving
         agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
-        history = acmodel.history
-        acmodel.history = []
+        if acmodel.use_vlm:
+            history = acmodel.history
+            acmodel.history = []
+        
         agent.model = acmodel
         agent.model.eval()
 
@@ -343,7 +345,9 @@ while status['num_frames'] < args.frames:
             concurrent_episodes=args.val_concurrent_episodes)
 
         agent.model.train()
-        acmodel.history = history
+
+        if acmodel.use_vlm:
+            acmodel.history = history
 
         mean_return = np.mean(logs["return_per_episode"])
         success_rate = np.mean([1 if r > 0 else 0 for r in logs['return_per_episode']])
@@ -360,3 +364,5 @@ while status['num_frames'] < args.frames:
             logger.info("Return {: .2f}; best model is saved".format(mean_return))
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
+
+print("finished")
