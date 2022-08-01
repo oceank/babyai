@@ -1,3 +1,4 @@
+from base64 import encode
 import copy
 import torch
 import torch.nn as nn
@@ -538,10 +539,16 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         # generated_tokens: (batch, self.max_sent_len)
         # generated_sentences:  a llist of strings
         time_start = time.time()
-        generated_tokens, generated_sentences, time_cost_temp = self.describe_visual_observations(encoded_input)
-        time_cost['generate_sentence'] = time.time() - time_start
-        for key in time_cost_temp:
-            time_cost[key] = time_cost_temp[key]
+        generated_tokens = self.vlm.generate_sentence(self.max_desc_len, **encoded_input)
+        time_cost['generate_tokens'] = time.time() - time_start
+        start_time = time.time()
+        generated_sentences = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+        time_cost['decoding'] = time.time() - start_time
+        time_cost['generate_sentence'] = time_cost['generate_tokens'] + time_cost['decoding']
+        #generated_tokens, generated_sentences, time_cost_temp = self.describe_visual_observations(encoded_input)
+        #time_cost['generate_sentence'] = time.time() - time_start
+        #for key in time_cost_temp:
+        #    time_cost[key] = time_cost_temp[key]
 
         # update the history: self.history
         for b_idx in range(batch_size):           
