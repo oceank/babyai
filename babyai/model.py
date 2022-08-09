@@ -508,7 +508,9 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
 
         # generated_tokens: (batch, self.max_sent_len)
         # generated_sentences:  a llist of strings
-        generated_tokens, generated_sentences = self.describe_visual_observations(encoded_input)
+        #generated_tokens, generated_sentences = self.describe_visual_observations(encoded_input)
+        generated_tokens = self.vlm.generate_sentences(self.max_desc_len,**encoded_input)
+        generated_sentences = self.tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
 
         # update the history: self.history
         for b_idx in range(batch_size):           
