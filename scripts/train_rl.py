@@ -117,15 +117,19 @@ vlm = None
 tokenizer=None
 
 if args.use_vlm:
+    lang_model_name = "distilgpt2" # "gpt2"
+    # gpt2: 12 transformer layers
+    # distilgpt2: 6 transformer layers
+
     print(f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===")
     print(f"[Setup] Use VLM to help the anget to explore the grid world")
-    print(f"[Setup] Create a tokenizer and GPT2 language model")
+    print(f"[Setup] Create a tokenizer and {lang_model_name} language model")
 
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2", return_dict=True)
+    tokenizer = GPT2Tokenizer.from_pretrained(lang_model_name, return_dict=True)
     tokenizer.pad_token = tokenizer.eos_token # pad token
 
     lang_model = GPT2LMHeadModel.from_pretrained(
-        "gpt2",
+        lang_model_name,
         pad_token_id=tokenizer.pad_token_id)
 
     lang_model_config = lang_model.config
@@ -329,8 +333,9 @@ while status['num_frames'] < args.frames:
         # Testing the model before saving
         agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
-        history = acmodel.history
-        acmodel.history = []
+        if acmodel.use_vlm:
+            history = acmodel.history
+            acmodel.history = []
         agent.model = acmodel
         agent.model.eval()
 
@@ -343,7 +348,8 @@ while status['num_frames'] < args.frames:
             concurrent_episodes=args.val_concurrent_episodes)
 
         agent.model.train()
-        acmodel.history = history
+        if acmodel.use_vlm:
+            acmodel.history = history
 
         mean_return = np.mean(logs["return_per_episode"])
         success_rate = np.mean([1 if r > 0 else 0 for r in logs['return_per_episode']])
@@ -360,3 +366,6 @@ while status['num_frames'] < args.frames:
             logger.info("Return {: .2f}; best model is saved".format(mean_return))
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
+
+
+print(f"Total time elapsed: {time.time() - total_start_time}")
