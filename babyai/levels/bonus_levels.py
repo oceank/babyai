@@ -286,6 +286,12 @@ class Level_KeyInBox(RoomGridLevel):
 
         self.instrs = OpenInstr(ObjDesc(door.type))
 
+        self.sub_goals = [
+            {"instr": GoToInstr(ObjDesc(box.type, box.color))},
+            #{"instr": PickupInstr(ObjDesc(key.type, key.color))},
+            {"instr": GoToInstr(ObjDesc(door.type))},
+            {"instr": OpenInstr(ObjDesc(door.type))}
+            ]
 
 class Level_UnlockPickup(RoomGridLevel):
     """

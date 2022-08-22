@@ -27,6 +27,8 @@ class RoomGridLevel(RoomGrid):
         room_size=8,
         **kwargs
     ):
+        self.sub_goals = {}
+
         super().__init__(
             room_size=room_size,
             **kwargs
@@ -37,6 +39,12 @@ class RoomGridLevel(RoomGrid):
 
         # Recreate the verifier
         self.instrs.reset_verifier(self)
+        if len(self.sub_goals):
+            print(f"List of subgoals for the mission:")
+            for sub_goal in self.sub_goals:
+                sub_goal['instr'].reset_verifier(self)
+                print(f"*** Subgoal: {sub_goal['desc']}")
+
 
         # Compute the time step limit based on the maze size and instructions
         nav_time_room = self.room_size ** 2
@@ -55,6 +63,11 @@ class RoomGridLevel(RoomGrid):
 
         # If we've successfully completed the mission
         status = self.instrs.verify(action)
+
+        if len(self.sub_goals):
+            for sub_goal in self.sub_goals:
+                if sub_goal['instr'].verify(action) == 'success':
+                    print(f"===> [Subgoal Completed] {sub_goal['desc']}")
 
         if status == 'success':
             done = True
@@ -87,6 +100,13 @@ class RoomGridLevel(RoomGrid):
                 # Validate the instructions
                 self.validate_instrs(self.instrs)
 
+                '''
+                # Validate the instructions for the sub-goals
+                if len(self.sub_goals):
+                    for sub_goal in self.sub_goals:
+                        self.validate_instrs(sub_goal["instr"])
+                '''
+
             except RecursionError as error:
                 print('Timeout during mission generation:', error)
                 continue
@@ -100,6 +120,11 @@ class RoomGridLevel(RoomGrid):
         # Generate the surface form for the instructions
         self.surface = self.instrs.surface(self)
         self.mission = self.surface
+
+        # Generate the surface form for the sub-goal instructions
+        if len(self.sub_goals):
+            for sub_goal in self.sub_goals:
+                sub_goal['desc'] = sub_goal['instr'].surface(self)
 
     def validate_instrs(self, instr):
         """

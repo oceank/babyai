@@ -210,6 +210,15 @@ class Level_PutNextLocal(RoomGridLevel):
             ObjDesc(o2.type, o2.color)
         )
 
+        self.sub_goals = [
+            {"instr": GoToInstr(ObjDesc(o1.type, o1.color))},
+            {"instr": PickupInstr(ObjDesc(o1.type, o1.color))},
+            {"instr": GoToInstr(ObjDesc(o2.type, o2.color))},
+            {"instr": PutNextInstr(
+                ObjDesc(o1.type, o1.color),
+                ObjDesc(o2.type, o2.color))}
+        ]
+
 
 class Level_PutNextLocalS5N3(Level_PutNextLocal):
     def __init__(self, seed=None):
