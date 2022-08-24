@@ -54,6 +54,10 @@ class RoomGridLevel(RoomGrid):
 
         return obs
 
+    
+    def reward(self):
+        return self._reward()
+
     def step(self, action):
         obs, reward, done, info = super().step(action)
 

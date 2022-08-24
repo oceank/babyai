@@ -10,6 +10,8 @@ import time
 
 import babyai.utils as utils
 
+import numpy as np
+
 # Parse arguments
 
 parser = argparse.ArgumentParser()
@@ -57,6 +59,9 @@ assert args.model is not None or args.demos is not None, "--model or --demos mus
 if args.seed is None:
     args.seed = 0 if args.model is not None else 1
 
+max_num_episodes = 100
+all_rewards = []
+
 # Set seed for all randomness sources
 
 utils.seed(args.seed)
@@ -71,6 +76,7 @@ obs = env.reset()
 print("Mission: {}".format(obs["mission"]))
 
 # If subgoals and their policy models are used to commplete the mission
+goal = None
 subgoals = None
 if use_subgoals:
     goal = {'desc':env.mission, 'instr':env.instrs}
@@ -88,14 +94,43 @@ agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.ar
 # Set the mission to be the first subgoal and reset its instruction's verifier
 if use_subgoals:
     env.instrs = agent.current_subgoal_instr
-    env.mission = agent.current_subgoal_desc
+    env.surface = env.instrs.surface(env)
+    env.mission = env.surface
     env.instrs.reset_verifier(env)
+
+    # set the mission to tbe the first subgoal in the initial observation
+    obs["mission"] = env.mission
 
 # Run the agent
 
 done = True
 
 action = None
+
+def verify_current_subgoal_helper(use_subgoals, agent, action, env, new_obs):
+    if use_subgoals:
+        agent.verify_current_subgoal(action, env)
+
+        # Workround to fix the issue:
+        #   The updated env.mission does not take effect in env.render() and env.gen_obs().
+        #   They use the initial mission, i.e., the high-level goal.
+        #   So, manually correct the mission information in the observation
+        new_obs["mission"] = env.mission
+
+def reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, initial_obs):
+    if use_subgoals:
+        agent.reinitialize_mission(env)
+
+        # set the mission to tbe the first subgoal in the initial observation
+        initial_obs["mission"] = env.mission
+
+def get_statistics(arr, num_decimals=4):
+    mean = np.round(arr.mean(), decimals=num_decimals)
+    std = np.round(arr.std(), decimals=num_decimals)
+    max = np.round(arr.max(), decimals=num_decimals)
+    min = np.round(arr.min(), decimals=num_decimals)
+
+    return mean, std, max, min
 
 def keyDownCb(event):
     global obs
@@ -120,33 +155,16 @@ def keyDownCb(event):
 
     obs, reward, done, _ = env.step(action)
 
-    if use_subgoals:
-        status = agent.current_subgoal_instr.verify(action)
-        if (status == 'success'):
-            print(f"===> [Subgoal Completed] {agent.current_subgoal_desc}")
-            if agent.current_subgoal_idx + 1 < len(agent.subgoals):
-                new_subgoal_idx = agent.current_subgoal_idx + 1
-                agent.select_new_subgoal(new_subgoal_idx)
-                env.instrs = agent.current_subgoal_instr
-                env.mission = agent.current_subgoal_desc
-                env.instrs.reset_verifier(env)
+    verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
 
-                done = False # the initial goal is not completed yet
-            else: # all subgoals have been completed
-                env.instrs = agent.goal['instr']
-                env.mission = agent.goal['desc']
-                env.instrs.reset_verifier(env)
-                if env.instrs.verify(action) == 'success': # the initial goal is completed
-                    done = True
-                    reward = env._reward()
-
-    # only 'done' parameter is used to update the memory
+    # only 'done' parameter is used to reset the agent's memory for the finished mission
     agent.analyze_feedback(reward, done)
     if done:
         print("Reward:", reward)
         obs = env.reset()
         print("Mission: {}".format(obs["mission"]))
 
+        reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
 
 if args.manual_mode:
     env.render('human')
@@ -159,7 +177,11 @@ while True:
     env.render("human")
     if not args.manual_mode:
         result = agent.act(obs)
-        obs, reward, done, _ = env.step(result['action'])
+        action = result['action']
+        obs, reward, done, _ = env.step(action)
+
+        verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
+
         agent.analyze_feedback(reward, done)
         if 'dist' in result and 'value' in result:
             dist, value = result['dist'], result['value']
@@ -169,10 +191,25 @@ while True:
         else:
             print("step: {}, mission: {}".format(step, obs['mission']))
         if done:
-            print("Reward:", reward)
+            print(f"Reward: {reward}\n")
+            all_rewards.append(reward)
             episode_num += 1
+            if episode_num == max_num_episodes:
+                all_rewards = np.array(all_rewards)
+                mean_r, std_r, max_r, min_r = get_statistics(all_rewards)
+                print(f"Test Performance Over {max_num_episodes} Episodes: (Reward)")
+                print(f"\tmean:{mean_r}\n")
+                print(f"\tstd :{std_r}\n")
+                print(f"\tmax :{max_r}\n")
+                print(f"\tmin :{min_r}\n")
+                break
+
             env.seed(args.seed + episode_num)
             obs = env.reset()
+
+            print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
+            reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
+
             agent.on_reset()
             step = 0
         else:

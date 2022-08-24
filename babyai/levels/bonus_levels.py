@@ -1176,6 +1176,21 @@ class Level_UnlockLocalR2Dist(Level_UnlockLocalR2):
             use_subgoals=use_subgoals
         )
 
+class Level_UnlockLocalR2DistSubGoal(Level_UnlockLocalR2):
+    """
+    Fetch a key and unlock a door
+    (in the current room)
+    """
+
+    def __init__(self, room_size=8, distractors=True, seed=None, use_subgoals=True):
+
+        super().__init__(
+            room_size=room_size,
+            distractors=distractors,
+            seed=seed,
+            use_subgoals=use_subgoals
+        )
+
 class Level_PickupKeyLocalR2Dist(Level_PickupKeyLocalR2):
     """
     Fetch a key in the current room
@@ -1202,7 +1217,44 @@ class Level_OpenDoorLocalR2Dist(Level_OpenDoorLocalR2):
             seed=seed
         )
 
+class Level_OpenDoorLocalR2Key(Level_OpenDoorLocalR2):
+    """
+    Open an unlocked door in the current room
+    """
 
+    def __init__(self, room_size=8, distractors=False, seed=None):
+
+        super().__init__(
+            room_size=room_size,
+            distractors=distractors,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        door, _ = self.add_door(0, 0, locked=False)
+
+        key = Key(door.color)
+        self.place_in_room(0, 0, key)
+
+        if self.distractors:
+            self.add_distractors(0, 0, num_distractors=3)
+
+        self.place_agent(0, 0)
+
+        self.instrs = OpenInstr(ObjDesc(door.type, door.color))
+
+class Level_OpenDoorLocalR2KeyDist(Level_OpenDoorLocalR2Key):
+    """
+    Open an unlocked door in the current room
+    """
+
+    def __init__(self, room_size=8, seed=None):
+
+        super().__init__(
+            room_size=room_size,
+            distractors=True,
+            seed=seed
+        )
 
 for name, level in list(globals().items()):
     if name.startswith('Level_'):

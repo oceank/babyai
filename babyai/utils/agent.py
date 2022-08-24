@@ -109,10 +109,6 @@ class SubGoalModelAgent(ModelAgent):
     def __init__(self, subgoals, goal, obss_preprocessor, argmax):
         self.subgoals = subgoals
 
-        if obss_preprocessor is None:
-            obss_preprocessor = utils.ObssPreprocessor(self.subgoals[0]['model_name'])
-        self.obss_preprocessor = obss_preprocessor
-
         self.goal = goal
         for subgoal in self.subgoals:
             subgoal['model'] = utils.load_model(subgoal['model_name'])
@@ -123,6 +119,7 @@ class SubGoalModelAgent(ModelAgent):
         self.model = None # TODo: The initialization might not be necessary.
         self.current_subgoal_instr = None
         self.current_subgoal_desc  = None
+        self.obss_preprocessor     = None
         self.setup_serving_subgoal(self.current_subgoal_idx)
 
         self.device = next(self.model.parameters()).device
@@ -138,11 +135,59 @@ class SubGoalModelAgent(ModelAgent):
         self.current_subgoal_idx = new_subgoal_idx
         self.setup_serving_subgoal(new_subgoal_idx)
 
-    def setup_serving_subgoal(self, subgoal_idx):
+    def setup_serving_subgoal(self, subgoal_idx=0):
         self.current_subgoal_idx = subgoal_idx
         self.model = self.subgoals[self.current_subgoal_idx]['model']
+        self.obss_preprocessor = utils.ObssPreprocessor(
+            self.subgoals[self.current_subgoal_idx]['model_name'])
         self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
         self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
+
+    def verify_current_subgoal(self, action, env):
+        reward = 0
+        done = False
+
+        status = self.current_subgoal_instr.verify(action)
+        if (status == 'success'):
+            print(f"===> [Subgoal Completed] {self.current_subgoal_desc}")
+            if self.current_subgoal_idx + 1 < len(self.subgoals):
+                new_subgoal_idx = self.current_subgoal_idx + 1
+                self.select_new_subgoal(new_subgoal_idx)
+                env.instrs = self.current_subgoal_instr
+                env.mission = self.current_subgoal_desc
+                env.instrs.reset_verifier(env)
+
+                done = False # the initial goal is not completed yet
+                reward = 0 # no reward for the completed subgoal. Might be changed later
+            else: # all subgoals have been completed
+                env.instrs = self.goal['instr']
+                env.mission = self.goal['desc']
+                env.instrs.reset_verifier(env)
+                if env.instrs.verify(action) == 'success': # the initial goal is completed
+                    done = True
+                    reward = env.reward()
+
+        return reward, done
+
+    def reinitialize_mission(self, env):
+        # Update the agent's goal
+        self.goal = {'desc':env.mission, 'instr':env.instrs}
+
+        # Update the agent's subgoals
+        print(f"List of subgoals for the mission:")
+        for subgoal, agent_subgoal in zip(env.sub_goals, self.subgoals):
+            print(f"*** Subgoal: {subgoal['desc']}")
+            agent_subgoal['instr'] = subgoal['instr']
+            agent_subgoal['desc']  = subgoal['desc']
+        
+        # Have the agent aim to complete the first subgoal
+        self.setup_serving_subgoal(subgoal_idx=0)
+
+        # Set the environment's mission to be the first subgoal
+        # and reset its instruction's verifier
+        env.instrs = self.current_subgoal_instr
+        env.mission = self.current_subgoal_desc
+        env.instrs.reset_verifier(env)
 
 class RandomAgent:
     """A newly initialized model-based agent."""
