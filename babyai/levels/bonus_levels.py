@@ -1061,8 +1061,9 @@ class Level_UnlockLocalR2(RoomGridLevel):
     (in the current room)
     """
 
-    def __init__(self, room_size=8, distractors=False, seed=None):
+    def __init__(self, room_size=8, distractors=False, seed=None, use_subgoals=False):
         self.distractors = distractors
+        self.use_subgoals = use_subgoals
 
         super().__init__(
             num_rows=1,
@@ -1084,6 +1085,26 @@ class Level_UnlockLocalR2(RoomGridLevel):
         self.place_agent(0, 0)
 
         self.instrs = OpenInstr(ObjDesc(door.type, door.color))
+
+        if self.use_subgoals:
+            self.sub_goals = [
+            {"instr": PickupInstr(ObjDesc(key.type, key.color))},
+            {"instr": OpenInstr(ObjDesc(door.type, door.color))}
+            ]
+
+class Level_UnlockLocalR2SubGoal(Level_UnlockLocalR2):
+    """
+    Fetch a key and unlock a door
+    (in the current room)
+    """
+
+    def __init__(self, room_size=8, distractors=False, seed=None, use_subgoals=True):
+        super().__init__(
+            room_size=room_size,
+            distractors=distractors,
+            seed=seed,
+            use_subgoals=use_subgoals
+        )
 
 class Level_PickupKeyLocalR2(RoomGridLevel):
     """
@@ -1146,12 +1167,13 @@ class Level_UnlockLocalR2Dist(Level_UnlockLocalR2):
     (in the current room)
     """
 
-    def __init__(self, room_size=8, seed=None):
+    def __init__(self, room_size=8, distractors=True, seed=None, use_subgoals=False):
 
         super().__init__(
             room_size=room_size,
-            distractors=True,
-            seed=seed
+            distractors=distractors,
+            seed=seed,
+            use_subgoals=use_subgoals
         )
 
 class Level_PickupKeyLocalR2Dist(Level_PickupKeyLocalR2):

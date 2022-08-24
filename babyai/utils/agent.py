@@ -95,6 +95,54 @@ class ModelAgent(Agent):
         else:
             self.memory *= (1 - done)
 
+class SubGoalModelAgent(ModelAgent):
+    """A subgoal-models-based agent. This agent behaves using a list of models. Each model provides a policy to solve the corresponding subgoal"""
+
+    # subgoals: list of subgoals. Each is a dictionary that has the properties,
+    #           "desc", "instr", "model_name", "model". The "model" is supposed #           to be able to solve a distribution of subgoals similar to that 
+    #           described by "desc".
+    # Who decide the subgoals:
+    #           currently created by the environmenet during reset()
+    # How to decide the subgoals:
+    #           currently created by collectively use the environment
+    #           information and BabyAI language
+    def __init__(self, subgoals, goal, obss_preprocessor, argmax):
+        self.subgoals = subgoals
+
+        if obss_preprocessor is None:
+            obss_preprocessor = utils.ObssPreprocessor(self.subgoals[0]['model_name'])
+        self.obss_preprocessor = obss_preprocessor
+
+        self.goal = goal
+        for subgoal in self.subgoals:
+            subgoal['model'] = utils.load_model(subgoal['model_name'])
+            if torch.cuda.is_available():
+                subgoal['model'].cuda()
+
+        self.current_subgoal_idx = 0
+        self.model = None # TODo: The initialization might not be necessary.
+        self.current_subgoal_instr = None
+        self.current_subgoal_desc  = None
+        self.setup_serving_subgoal(self.current_subgoal_idx)
+
+        self.device = next(self.model.parameters()).device
+        self.argmax = argmax
+        self.memory = None
+    
+    # called by the reset() of an environment
+    def update_subgoal_desc_and_instr(self, idx, desc, instr):
+        self.subgoals[idx]['desc'] = desc
+        self.subgoals[idx]['instr'] = instr
+
+    def select_new_subgoal(self, new_subgoal_idx):
+        self.current_subgoal_idx = new_subgoal_idx
+        self.setup_serving_subgoal(new_subgoal_idx)
+
+    def setup_serving_subgoal(self, subgoal_idx):
+        self.current_subgoal_idx = subgoal_idx
+        self.model = self.subgoals[self.current_subgoal_idx]['model']
+        self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
+        self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
 
 class RandomAgent:
     """A newly initialized model-based agent."""
@@ -167,9 +215,11 @@ class BotAgent:
         pass
 
 
-def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True, env_name=None):
+def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True, env_name=None, subgoals=None, goal=None):
     # env_name needs to be specified for demo agents
-    if model_name == 'BOT':
+    if model_name == "SubGoalModelAgent":
+        return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax)
+    elif model_name == 'BOT':
         return BotAgent(env)
     elif model_name is not None:
         obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)

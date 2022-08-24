@@ -40,10 +40,10 @@ class RoomGridLevel(RoomGrid):
         # Recreate the verifier
         self.instrs.reset_verifier(self)
         if len(self.sub_goals):
-            print(f"List of subgoals for the mission:")
+            #print(f"List of subgoals for the mission:")
             for sub_goal in self.sub_goals:
                 sub_goal['instr'].reset_verifier(self)
-                print(f"*** Subgoal: {sub_goal['desc']}")
+                #print(f"*** Subgoal: {sub_goal['desc']}")
 
 
         # Compute the time step limit based on the maze size and instructions
@@ -64,10 +64,12 @@ class RoomGridLevel(RoomGrid):
         # If we've successfully completed the mission
         status = self.instrs.verify(action)
 
+        '''
         if len(self.sub_goals):
             for sub_goal in self.sub_goals:
                 if sub_goal['instr'].verify(action) == 'success':
                     print(f"===> [Subgoal Completed] {sub_goal['desc']}")
+        '''
 
         if status == 'success':
             done = True
