@@ -37,7 +37,7 @@ parser.add_argument("--subgoal-model-name-list", type=str, default=None,
 
 args = parser.parse_args()
 
-
+# action map of primitive actions
 action_map = {
     "left"      : "left",
     "right"     : "right",
@@ -47,6 +47,12 @@ action_map = {
     "d"         : "drop",
     "pagedown"  : "drop",
     " "         : "toggle"
+}
+
+# skill map: each skill is supposed to complete a low-level 
+skill_map = {
+    "0" : 0, # PickupKeyLocal
+    "1" : 1, # OpenDoorLocal
 }
 
 use_subgoals = False
@@ -91,38 +97,11 @@ if use_subgoals:
 # Define agent
 agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal)
 
-# Set the mission to be the first subgoal and reset its instruction's verifier
-if use_subgoals:
-    env.instrs = agent.current_subgoal_instr
-    env.surface = env.instrs.surface(env)
-    env.mission = env.surface
-    env.instrs.reset_verifier(env)
-
-    # set the mission to tbe the first subgoal in the initial observation
-    obs["mission"] = env.mission
-
 # Run the agent
 
 done = True
 
 action = None
-
-def verify_current_subgoal_helper(use_subgoals, agent, action, env, new_obs):
-    if use_subgoals:
-        agent.verify_current_subgoal(action, env)
-
-        # Workround to fix the issue:
-        #   The updated env.mission does not take effect in env.render() and env.gen_obs().
-        #   They use the initial mission, i.e., the high-level goal.
-        #   So, manually correct the mission information in the observation
-        new_obs["mission"] = env.mission
-
-def reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, initial_obs):
-    if use_subgoals:
-        agent.reinitialize_mission(env)
-
-        # set the mission to tbe the first subgoal in the initial observation
-        initial_obs["mission"] = env.mission
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -135,40 +114,75 @@ def get_statistics(arr, num_decimals=4):
 def keyDownCb(event):
     global obs
     global use_subgoals
+    global step
 
     keyName = event.key
-    print(keyName)
 
     # Avoiding processing of observation by agent for wrong key clicks
-    if keyName not in action_map and keyName != "enter":
+    if keyName not in skill_map and keyName not in action_map and keyName != "enter":
+        print(f"Keyboard input, {keyName}, is not supported. Please try a valid one.")
         return
 
-    agent_action = agent.act(obs)['action']
+    # Select a skill to work on a subtask task
+    if use_subgoals and (keyName in skill_map):
+        new_low_level_task_idx = skill_map[keyName]
+        agent.select_new_subgoal(new_low_level_task_idx)
+        agent.current_subgoal_instr.reset_verifier(env)
+        print(f"[Input {keyName}] select the skill,{agent.current_subgoal_idx}, to complete the subtask, {agent.current_subgoal_desc}")
+ 
+        # workaround to fix the instruction in the observation when working on the subgoal
+        obs["mission"] = agent.current_subgoal_desc
 
-    # Map the key to an action
-    if keyName in action_map:
-        action = env.actions[action_map[keyName]]
+        return
 
-    # Enter executes the agent's action
-    elif keyName == "enter":
-        action = agent_action
+    else: # apply the policy of selected subgoal
 
-    obs, reward, done, _ = env.step(action)
+        # Map the key to an action
+        if keyName in action_map:
+            action = env.actions[action_map[keyName]]
 
-    verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
+        # Enter executes the agent's action
+        elif keyName == "enter":
+            if use_subgoals and (agent.current_subgoal_idx is None):
+                print(f"[No subgoal is selected thus no policy is available for use. Please choose the next subgoal:]")
+                return
+            else:
+                action = agent.act(obs)['action']
 
-    # only 'done' parameter is used to reset the agent's memory for the finished mission
-    agent.analyze_feedback(reward, done)
-    if done:
-        print("Reward:", reward)
-        obs = env.reset()
-        print("Mission: {}".format(obs["mission"]))
+        obs, reward, done, _ = env.step(action)
 
-        reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
+        step += 1
+        print(f"[Low-level Step {step}] {keyName}")
+
+        #verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
+        if use_subgoals:
+            is_subgoal_completed = agent.verify_current_subgoal(action)
+            # workaround to fix the instruction in the observation when working on the subgoal
+            if not is_subgoal_completed:
+                obs['mission'] = agent.current_subgoal_desc
+
+        # only 'done' parameter is used to reset the agent's memory for the finished mission
+        agent.analyze_feedback(reward, done)
+        if done:
+            print(f"Reward: {reward}\n")
+            obs = env.reset()
+            print("Mission: {}".format(obs["mission"]))
+            step = 0
+
+            if use_subgoals:
+                agent.reinitialize_mission(env)
+
+        if use_subgoals and (done or is_subgoal_completed):
+            print(f"[Please choose the next subgoal:]")
+
+
 
 if args.manual_mode:
     env.render('human')
     env.window.reg_key_handler(keyDownCb)
+
+
+print(f"[Please choose the next subgoal:]")
 
 step = 0
 episode_num = 0
@@ -180,7 +194,9 @@ while True:
         action = result['action']
         obs, reward, done, _ = env.step(action)
 
-        verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
+        #verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
+        if use_subgoals:
+            is_subgoal_completed = agent.verify_current_subgoal(action)
 
         agent.analyze_feedback(reward, done)
         if 'dist' in result and 'value' in result:
@@ -208,10 +224,16 @@ while True:
             obs = env.reset()
 
             print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
-            reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
+            #reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
+            if use_subgoals:
+                agent.reinitialize_mission(env)
 
             agent.on_reset()
             step = 0
+        
+        if use_subgoals and (done or is_subgoal_completed):
+            print(f"[Please choose the next subgoal:]")
+
         else:
             step += 1
 

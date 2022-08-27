@@ -99,7 +99,8 @@ class SubGoalModelAgent(ModelAgent):
     """A subgoal-models-based agent. This agent behaves using a list of models. Each model provides a policy to solve the corresponding subgoal"""
 
     # subgoals: list of subgoals. Each is a dictionary that has the properties,
-    #           "desc", "instr", "model_name", "model". The "model" is supposed #           to be able to solve a distribution of subgoals similar to that 
+    #           "desc", "instr", "model_name", "model". The "model" is supposed
+    #           to be able to solve a distribution of subgoals similar to that 
     #           described by "desc".
     # Who decide the subgoals:
     #           currently created by the environmenet during reset()
@@ -115,16 +116,18 @@ class SubGoalModelAgent(ModelAgent):
             if torch.cuda.is_available():
                 subgoal['model'].cuda()
 
-        self.current_subgoal_idx = 0
-        self.model = None # TODo: The initialization might not be necessary.
+        self.current_subgoal_idx = None
+        self.model = None
         self.current_subgoal_instr = None
         self.current_subgoal_desc  = None
         self.obss_preprocessor     = None
-        self.setup_serving_subgoal(self.current_subgoal_idx)
 
-        self.device = next(self.model.parameters()).device
+        #self.device = next(self.model.parameters()).device
+        # Use the first gpu if it exists
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.argmax = argmax
         self.memory = None
+
     
     # called by the reset() of an environment
     def update_subgoal_desc_and_instr(self, idx, desc, instr):
@@ -143,32 +146,26 @@ class SubGoalModelAgent(ModelAgent):
         self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
         self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
 
-    def verify_current_subgoal(self, action, env):
-        reward = 0
-        done = False
+    def verify_current_subgoal(self, action):
+        is_completed = False
 
         status = self.current_subgoal_instr.verify(action)
         if (status == 'success'):
             print(f"===> [Subgoal Completed] {self.current_subgoal_desc}")
-            if self.current_subgoal_idx + 1 < len(self.subgoals):
-                new_subgoal_idx = self.current_subgoal_idx + 1
-                self.select_new_subgoal(new_subgoal_idx)
-                env.instrs = self.current_subgoal_instr
-                env.mission = self.current_subgoal_desc
-                env.instrs.reset_verifier(env)
+            is_completed = True
 
-                done = False # the initial goal is not completed yet
-                reward = 0 # no reward for the completed subgoal. Might be changed later
-            else: # all subgoals have been completed
-                env.instrs = self.goal['instr']
-                env.mission = self.goal['desc']
-                env.instrs.reset_verifier(env)
-                if env.instrs.verify(action) == 'success': # the initial goal is completed
-                    done = True
-                    reward = env.reward()
+        return is_completed
+    
+    def verify_goal_completion(self, env, action):
+        reward = 0
+        done = False
+
+        if env.instrs.verify(action) == 'success': # the initial goal is completed
+            done = True
+            reward = env.reward()
 
         return reward, done
-
+           
     def reinitialize_mission(self, env):
         # Update the agent's goal
         self.goal = {'desc':env.mission, 'instr':env.instrs}
@@ -179,15 +176,7 @@ class SubGoalModelAgent(ModelAgent):
             print(f"*** Subgoal: {subgoal['desc']}")
             agent_subgoal['instr'] = subgoal['instr']
             agent_subgoal['desc']  = subgoal['desc']
-        
-        # Have the agent aim to complete the first subgoal
-        self.setup_serving_subgoal(subgoal_idx=0)
 
-        # Set the environment's mission to be the first subgoal
-        # and reset its instruction's verifier
-        env.instrs = self.current_subgoal_instr
-        env.mission = self.current_subgoal_desc
-        env.instrs.reset_verifier(env)
 
 class RandomAgent:
     """A newly initialized model-based agent."""
