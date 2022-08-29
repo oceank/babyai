@@ -82,7 +82,8 @@ class ManyEnvs(gym.Env):
 
 
 # Returns the performance of the agent on the environment for a particular number of episodes.
-def batch_evaluate(agent, env_name, seed, episodes, return_obss_actions=False, pixel=False, concurrent_episodes=256):
+def batch_evaluate(agent, env_name, seed, episodes, return_obss_actions=False, pixel=False, concurrent_episodes=256,
+use_subgoal=False):
     num_envs = min(concurrent_episodes, episodes)
 
     envs = []
@@ -121,7 +122,11 @@ def batch_evaluate(agent, env_name, seed, episodes, return_obss_actions=False, p
                     if not already_done[i]:
                         obss[i].append(many_obs[i])
                         actions[i].append(action[i].item())
-            many_obs, reward, done, _ = env.step(action)
+            
+            if use_subgoal:
+                many_obs, reward, done, subgoals_completion = agent.apply_skill_batch(many_obs, env.envs, action)
+            else:
+                many_obs, reward, done, _ = env.step(action)
             agent.analyze_feedback(reward, done)
             done = np.array(done)
             just_done = done & (~already_done)

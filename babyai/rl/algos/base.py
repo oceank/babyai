@@ -12,7 +12,8 @@ class BaseAlgo(ABC):
     """The base class for RL algorithms."""
 
     def __init__(self, envs, acmodel, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef,
-                 value_loss_coef, max_grad_norm, recurrence, preprocess_obss, reshape_reward, aux_info):
+                 value_loss_coef, max_grad_norm, recurrence, preprocess_obss, reshape_reward, aux_info,
+                 use_subgoal=False, agent=None):
         """
         Initializes a `BaseAlgo` instance.
 
@@ -76,11 +77,22 @@ class BaseAlgo(ABC):
 
         assert self.num_frames_per_proc % self.recurrence == 0
 
+        # Initialize parameters for having the agent use subgoals 
+        self.use_subgoal = use_subgoal
+        self.agent = agent
+
         # Initialize experience values
 
         shape = (self.num_frames_per_proc, self.num_procs)
 
         self.obs = self.env.reset()
+
+        if self.use_subgoal:
+            assert agent is not None
+            # FixMe: Currently only support training with one env instance.
+            # Update the goal and subgoals in the agent
+            agent.initialize_mission(self, self.env.envs[0])
+
         self.obss = [None]*(shape[0])
 
         self.memory = torch.zeros(shape[1], self.acmodel.memory_size, device=self.device)
@@ -173,7 +185,11 @@ class BaseAlgo(ABC):
 
             action = dist.sample()
 
-            obs, reward, done, env_info = self.env.step(action.cpu().numpy())
+            if self.use_subgoal:
+                obs, reward, done, subgoals_completion = self.agent.apply_skill_batch(self.obs, self.env.envs, action)
+            else:
+                obs, reward, done, env_info = self.env.step(action.cpu().numpy())
+
             if self.aux_info:
                 env_info = self.aux_info_collector.process(env_info)
                 # env_info = self.process_aux_info(env_info)

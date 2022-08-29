@@ -21,7 +21,7 @@ import babyai.rl
 from babyai.arguments import ArgumentParser
 from babyai.model import ACModel
 from babyai.evaluate import batch_evaluate
-from babyai.utils.agent import ModelAgent
+from babyai.utils.agent import ModelAgent, SkillModelAgent
 from gym_minigrid.wrappers import RGBImgPartialObsWrapper
 
 from transformers import GPT2LMHeadModel, GPT2Tokenizer, top_k_top_p_filtering, get_linear_schedule_with_warmup
@@ -68,6 +68,11 @@ parser.add_argument("--sample-next-token", action="store_true", default=False,
                     help="Get the next token by sampling the predicted probability distribution over the vocabulary (default: True)")
 
 
+parser.add_argument("--use-subgoal", action="store_true", default=False,
+                    help="use a SkillModelAgent and a library of skills to complete the goal")
+parser.add_argument("--skill-model-name-list", type=str, default=None,
+                    help="list of model name of each skill")
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
@@ -82,11 +87,33 @@ for i in range(args.procs):
     env.seed(100 * args.seed + i)
     envs.append(env)
 
+
+goal = None
+subgoals = None
+agent = None
+if args.use_subgoal:
+    assert args.skill_model_name_list is not None
+    subgoal_model_name_list = args.subgoal_model_name_list.split(',')
+
+    env = envs[0]
+    goal = {'desc':env.mission, 'instr':env.instrs}
+
+    #print(f"List of subgoals for the mission:")
+    subgoals = env.sub_goals
+    skill_library = []
+    for subgoal_model_name in subgoal_model_name_list:
+        skill = {}
+        skill['model_name'] = subgoal_model_name
+        skill_library.append(skill)
+        #print(f"*** Subgoal: {subgoal['desc']}")
+
 # Define model name
 suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 instr = args.instr_arch if args.instr_arch else "noinstr"
 mem = "mem" if not args.no_mem else "nomem"
 vlm_info="vlm" if args.use_vlm else "novlm"
+subgoal_info = "subgoal" if args.use_subgoal else "nosubgoal"
+
 model_name_parts = {
     'env': args.env,
     'algo': args.algo,
@@ -97,8 +124,9 @@ model_name_parts = {
     'info': '',
     'coef': '',
     'vlm' : vlm_info,
+    'subgoal': subgoal_info,
     'suffix': suffix}
-default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{vlm}_{suffix}".format(**model_name_parts)
+default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{vlm}_{subgoal}_{suffix}".format(**model_name_parts)
 if args.pretrained_model:
     default_model_name = args.pretrained_model + '_pretrained_' + default_model_name
 args.model = args.model.format(**model_name_parts) if args.model else default_model_name
@@ -111,6 +139,11 @@ if 'emb' in args.arch:
     obss_preprocessor = utils.IntObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
 else:
     obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
+
+
+if args.use_subgoal:
+    agent = SkillModelAgent(args.model, obss_preprocessor,argmax=True, subgoals=subgoals, goal=goal, skill_library=skill_library)
+
 
 # Parameters for VLM
 vlm = None
@@ -174,6 +207,20 @@ if args.use_vlm:
     )
 
 
+solving_high_level_task = True
+
+if solving_high_level_task:
+    # high-level task: unlock a door in one room
+    # action 0: pickup a key that matches the door
+    # action 1: open the door
+    num_of_subgoals = 2
+
+if solving_high_level_task:
+    # when solving a high-level task
+    num_of_actions = num_of_subgoals
+else:
+    # When solving a low-level task
+    num_of_actions = envs[0].action_space.n
 
 # Define actor-critic model
 acmodel = utils.load_model(args.model, raise_not_found=False)
@@ -182,7 +229,7 @@ if acmodel is None:
         acmodel = utils.load_model(args.pretrained_model, raise_not_found=True)
     else:
         acmodel = ACModel(
-            obss_preprocessor.obs_space, envs[0].action_space,
+            obss_preprocessor.obs_space, num_of_actions,
             args.image_dim, args.memory_dim, args.instr_dim,
             not args.no_instr, args.instr_arch, not args.no_mem, args.arch,
             # the following parameters are used for using the vlm
@@ -203,6 +250,9 @@ utils.save_model(acmodel, args.model)
 if torch.cuda.is_available():
     acmodel.cuda()
 
+use_subgoal = True
+agent = None
+
 # Define actor-critic algo
 
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
@@ -211,7 +261,7 @@ if args.algo == "ppo":
                              args.gae_lambda,
                              args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                              args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
-                             reshape_reward)
+                             reshape_reward, use_subgoal=use_subgoal, agent=agent)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
@@ -331,13 +381,14 @@ while status['num_frames'] < args.frames:
             utils.save_model(acmodel, args.model)
 
         # Testing the model before saving
-        agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
+        if not use_subgoal:
+            agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
         if acmodel.use_vlm:
             history = acmodel.history
             acmodel.history = []
-        agent.model = acmodel
-        agent.model.eval()
+            agent.model = acmodel
+            agent.model.eval()
 
         logs = batch_evaluate(
             agent,
@@ -345,7 +396,8 @@ while status['num_frames'] < args.frames:
             args.val_seed,
             args.val_episodes,
             pixel=use_pixel,
-            concurrent_episodes=args.val_concurrent_episodes)
+            concurrent_episodes=args.val_concurrent_episodes,
+            use_subgoal=use_subgoal)
 
         agent.model.train()
         if acmodel.use_vlm:

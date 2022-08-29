@@ -64,7 +64,7 @@ class ImageBOWEmbedding(nn.Module):
 
 class ACModel(nn.Module, babyai.rl.RecurrentACModel):
     def __init__(
-        self, obs_space, action_space,
+        self, obs_space, num_of_actions,
         image_dim=128, memory_dim=128, instr_dim=128,
         use_instr=False, lang_model="gru", use_memory=False,
         arch="bow_endpool_res", aux_info=None,
@@ -188,7 +188,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         self.actor = nn.Sequential(
             nn.Linear(self.embedding_size, 64),
             nn.Tanh(),
-            nn.Linear(64, action_space.n)
+            nn.Linear(64, num_of_actions)
         )
 
         # Define critic's model

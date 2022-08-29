@@ -95,6 +95,173 @@ class ModelAgent(Agent):
         else:
             self.memory *= (1 - done)
 
+class SkillModelAgent(ModelAgent):
+    """
+    An agent uses existing skills (policies) to complete a mission.
+    This agent behaves using a list of models.
+    Each model provides a policy to solve a corresponding subgoal
+    """
+
+    # subgoals: list of subgoals. Each is a dictionary that has the properties,
+    #           "desc" and "instr".
+    # skill_library: list of skills. Each is a dictionary that has the properties,
+    #           "model_name" and "model". The "model" is supposed to be able to
+    #           solve a distribution of subgoals similar to that described by "desc".
+    #           Note: skill_library[i] could solve subgoals[i]
+    # Who decide the subgoals:
+    #           currently created by the environmenet during reset()
+    # How to decide the subgoals:
+    #           currently created by collectively use the environment
+    #           information and BabyAI language
+    # Which skill to use at each time-step of solving the (high-level) goal
+
+    def __init__(self, model_or_name, obss_preprocessor, argmax, subgoals, goal, skill_library):
+        if obss_preprocessor is None:
+            assert isinstance(model_or_name, str)
+            obss_preprocessor = utils.ObssPreprocessor(model_or_name)
+        self.obss_preprocessor = obss_preprocessor
+        if isinstance(model_or_name, str):
+            self.model = utils.load_model(model_or_name)
+            if torch.cuda.is_available():
+                self.model.cuda()
+        else:
+            self.model = model_or_name
+        self.device = next(self.model.parameters()).device
+        self.argmax = argmax
+        self.memory = None
+
+        # Currently only support training and testing with one environment instance,
+        # but not multiple environment instances
+        self.subgoals = subgoals
+        self.goal = goal
+
+        self.skill_library = skill_library
+
+        for skill in self.skill_library:
+            skill['model'] = utils.load_model(skill['model_name'])
+            if torch.cuda.is_available():
+                skill['model'].cuda()
+            # load the learned vocab of the skill and use it to tokenize the subgoal
+            skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])
+            skill["budget_steps"] = 25 # each skill will roll out 25 steps at most
+
+        # assume all skills use the same memory size for their LSTM componenet
+        self.skill_memory_size = self.skill_library[0]['model'].memory_size
+
+        self.current_subgoal_idx = None
+        self.current_skill = None
+        self.current_subgoal_instr = None
+        self.current_subgoal_desc  = None
+        self.current_subgoal_obss_preprocessor = None
+        self.current_subgoal_budget_steps = None
+
+    # called by the reset() of an environment
+    def update_subgoal_desc_and_instr(self, idx, desc, instr):
+        self.subgoals[idx]['desc'] = desc
+        self.subgoals[idx]['instr'] = instr
+
+    def select_new_subgoal(self, new_subgoal_idx):
+        self.current_subgoal_idx = new_subgoal_idx
+        self.setup_serving_subgoal(new_subgoal_idx)
+
+    def setup_serving_subgoal(self, subgoal_idx=0):
+        self.current_subgoal_idx = subgoal_idx
+
+        self.current_skill = self.skill_library[self.current_subgoal_idx]['model']
+        self.current_subgoal_obss_preprocessor = self.skill_library[self.current_subgoal_idx]['obss_preprocessor']
+        self.current_subgoal_budget_steps = self.skill_library[self.current_subgoal_idx]['budget_steps']
+
+        self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
+        self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
+
+    def verify_current_subgoal(self, action):
+        return self.verify_goal_completion(self.current_subgoal_idx, action)
+
+    def verify_subgoal_completion(self, subgoal_idx, action):
+        is_completed = False
+        subgoal = self.subgoals[subgoal_idx]
+        status = subgoal['instr'].verify(action)
+        if (status == 'success'):
+            print(f"===> [Subgoal Completed] {subgoal['desc']}")
+            is_completed = True
+
+        return is_completed
+    
+    def verify_goal_completion(self, env, action):
+        reward = 0
+        done = False
+
+        if env.instrs.verify(action) == 'success': # the initial goal is completed
+            done = True
+            reward = env.reward()
+
+        return reward, done
+
+    # Currently, sequentially process the subgoal in each parallelingly running environment
+    def apply_skill_batch(self, many_obs, envs, subgoal_indices):
+        num_envs = len(many_obs)
+        subgoals_completion = []
+        memories = torch.zeros(num_envs, self.skill_memory_size, device=self.device)
+
+        for env_idx, subgoal_idx, obs, memory in zip(range(num_envs), subgoal_indices, many_obs, memories, envs):
+            env = envs[env_idx]
+            steps = 0
+            skill = self.skill_library[subgoal_idx]
+            subgoal = env.sub_goals[subgoal_idx] #self.subgoals[subgoal_idx]
+            subgoal['instr'].reset_verifier(env)
+            is_completed = False
+            while steps < skill['budget_steps']:
+                # set the text observation (i.e., instruction) to be the description of the subgoal
+                obs["mission"] = subgoal['desc']
+
+                preprocessed_obs = skill['obss_preprocessor']([obs], device=self.device)
+
+                with torch.no_grad():
+                    model_results = skill['model'](preprocessed_obs, [memory])
+                    dist = model_results['dist']
+                    value = model_results['value']
+                    memory = model_results['memory']
+
+                if self.argmax:
+                    action = dist.probs.argmax(1)
+                else:
+                    action = dist.sample()
+
+                obs, reward, done, _ = env.step(action.cpu().numpy())
+
+                steps += 1
+
+                is_completed = self.verify_subgoal_completion(subgoal_idx, action)
+                if is_completed:
+                    break
+
+            subgoals_completion.append(is_completed)
+
+            # Update the next observation for the high-level policy
+            # when the budget of steps are used or the subgoal is completed earlier
+            many_obs[env_idx] = obs
+
+            reward, done = self.verify_goal_completion(env, action.cpu().numpy())
+            
+
+        return many_obs, reward, done, subgoals_completion
+        
+
+    def apply_skill(self, obs, env, subgoal_idx):
+        return self.apply_skill_batch([obs], [env], [subgoal_idx])
+
+    def initialize_mission(self, env):
+        # Update the agent's goal
+        self.goal = {'desc':env.mission, 'instr':env.instrs}
+
+        # Update the agent's subgoals
+        print(f"List of subgoals for the mission:")
+        for idx, subgoal, agent_subgoal in zip(len(self.subgoals), env.sub_goals, self.subgoals):
+            print(f"*** Subgoal: {subgoal['desc']}")
+            self.update_subgoal_desc_and_instr(idx, subgoal['desc'], subgoal['instr'])
+
+
+
 class SubGoalModelAgent(ModelAgent):
     """A subgoal-models-based agent. This agent behaves using a list of models. Each model provides a policy to solve the corresponding subgoal"""
 
