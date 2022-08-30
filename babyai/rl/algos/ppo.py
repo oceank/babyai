@@ -19,7 +19,7 @@ class PPOAlgo(BaseAlgo):
 
         super().__init__(envs, acmodel, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef,
                          value_loss_coef, max_grad_norm, recurrence, preprocess_obss, reshape_reward,
-                         aux_info)
+                         aux_info, use_subgoal=use_subgoal, agent=agent)
 
         self.clip_eps = clip_eps
         self.epochs = epochs

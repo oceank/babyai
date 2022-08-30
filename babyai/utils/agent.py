@@ -143,7 +143,7 @@ class SkillModelAgent(ModelAgent):
                 skill['model'].cuda()
             # load the learned vocab of the skill and use it to tokenize the subgoal
             skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])
-            skill["budget_steps"] = 25 # each skill will roll out 25 steps at most
+            skill["budget_steps"] = 24 # each skill will roll out 25 steps at most
 
         # assume all skills use the same memory size for their LSTM componenet
         self.skill_memory_size = self.skill_library[0]['model'].memory_size
@@ -182,7 +182,7 @@ class SkillModelAgent(ModelAgent):
         subgoal = self.subgoals[subgoal_idx]
         status = subgoal['instr'].verify(action)
         if (status == 'success'):
-            print(f"===> [Subgoal Completed] {subgoal['desc']}")
+            #print(f"===> [Subgoal Completed] {subgoal['desc']}")
             is_completed = True
 
         return is_completed
@@ -201,10 +201,17 @@ class SkillModelAgent(ModelAgent):
     def apply_skill_batch(self, many_obs, envs, subgoal_indices):
         num_envs = len(many_obs)
         subgoals_completion = []
+        subgoals_consumed_steps = torch.zeros(num_envs, device=self.device)
         memories = torch.zeros(num_envs, self.skill_memory_size, device=self.device)
+        rewards = []
+        done = []
 
-        for env_idx, subgoal_idx, obs, memory in zip(range(num_envs), subgoal_indices, many_obs, memories, envs):
+        for env_idx in range(num_envs):
             env = envs[env_idx]
+            subgoal_idx = subgoal_indices[env_idx]
+            obs = many_obs[env_idx]
+            memory = memories[env_idx].unsqueeze(dim=0)
+
             steps = 0
             skill = self.skill_library[subgoal_idx]
             subgoal = env.sub_goals[subgoal_idx] #self.subgoals[subgoal_idx]
@@ -217,7 +224,7 @@ class SkillModelAgent(ModelAgent):
                 preprocessed_obs = skill['obss_preprocessor']([obs], device=self.device)
 
                 with torch.no_grad():
-                    model_results = skill['model'](preprocessed_obs, [memory])
+                    model_results = skill['model'](preprocessed_obs, memory)
                     dist = model_results['dist']
                     value = model_results['value']
                     memory = model_results['memory']
@@ -227,24 +234,40 @@ class SkillModelAgent(ModelAgent):
                 else:
                     action = dist.sample()
 
-                obs, reward, done, _ = env.step(action.cpu().numpy())
+                # Single environment
+                # Check
+                #   the original mission is done but not completed: reward=0, done=True
+                #   the original mission is completed: reward in (0,1), done=True
+                obs, reward, done_, _ = env.step(action.cpu().numpy())
 
                 steps += 1
 
-                is_completed = self.verify_subgoal_completion(subgoal_idx, action)
-                if is_completed:
+                status = subgoal['instr'].verify(action)
+                if (status == 'success'):
+                    #print(f"===> [Subgoal Completed] {subgoal['desc']}")
+                    is_completed = True
+                    
+                if done_ or is_completed:
                     break
 
+            if done_:
+                obs = env.reset()
+            
+            rewards.append(reward)
+            done.append(done_)
             subgoals_completion.append(is_completed)
+            subgoals_consumed_steps[env_idx] = steps
 
             # Update the next observation for the high-level policy
             # when the budget of steps are used or the subgoal is completed earlier
             many_obs[env_idx] = obs
 
-            reward, done = self.verify_goal_completion(env, action.cpu().numpy())
+            # The verification of goal completion is done in the above code
+            #   "env.step(action.cpu().numpy())"
+            #reward, done = self.verify_goal_completion(env, action.cpu().numpy())
             
 
-        return many_obs, reward, done, subgoals_completion
+        return many_obs, rewards, done, subgoals_consumed_steps, #subgoals_completion
         
 
     def apply_skill(self, obs, env, subgoal_idx):
@@ -256,7 +279,7 @@ class SkillModelAgent(ModelAgent):
 
         # Update the agent's subgoals
         print(f"List of subgoals for the mission:")
-        for idx, subgoal, agent_subgoal in zip(len(self.subgoals), env.sub_goals, self.subgoals):
+        for idx, subgoal, agent_subgoal in zip(range(len(self.subgoals)), env.sub_goals, self.subgoals):
             print(f"*** Subgoal: {subgoal['desc']}")
             self.update_subgoal_desc_and_instr(idx, subgoal['desc'], subgoal['instr'])
 

@@ -93,7 +93,7 @@ subgoals = None
 agent = None
 if args.use_subgoal:
     assert args.skill_model_name_list is not None
-    subgoal_model_name_list = args.subgoal_model_name_list.split(',')
+    skill_model_name_list = args.skill_model_name_list.split(',')
 
     env = envs[0]
     goal = {'desc':env.mission, 'instr':env.instrs}
@@ -101,9 +101,9 @@ if args.use_subgoal:
     #print(f"List of subgoals for the mission:")
     subgoals = env.sub_goals
     skill_library = []
-    for subgoal_model_name in subgoal_model_name_list:
+    for skill_model_name in skill_model_name_list:
         skill = {}
-        skill['model_name'] = subgoal_model_name
+        skill['model_name'] = skill_model_name
         skill_library.append(skill)
         #print(f"*** Subgoal: {subgoal['desc']}")
 
@@ -139,10 +139,6 @@ if 'emb' in args.arch:
     obss_preprocessor = utils.IntObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
 else:
     obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
-
-
-if args.use_subgoal:
-    agent = SkillModelAgent(args.model, obss_preprocessor,argmax=True, subgoals=subgoals, goal=goal, skill_library=skill_library)
 
 
 # Parameters for VLM
@@ -213,7 +209,7 @@ if solving_high_level_task:
     # high-level task: unlock a door in one room
     # action 0: pickup a key that matches the door
     # action 1: open the door
-    num_of_subgoals = 2
+    num_of_subgoals = len(skill_model_name_list)
 
 if solving_high_level_task:
     # when solving a high-level task
@@ -250,8 +246,11 @@ utils.save_model(acmodel, args.model)
 if torch.cuda.is_available():
     acmodel.cuda()
 
-use_subgoal = True
-agent = None
+
+if args.use_subgoal:
+    agent = SkillModelAgent(
+        acmodel, obss_preprocessor, argmax=True,
+        subgoals=subgoals, goal=goal, skill_library=skill_library)
 
 # Define actor-critic algo
 
@@ -261,7 +260,7 @@ if args.algo == "ppo":
                              args.gae_lambda,
                              args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                              args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
-                             reshape_reward, use_subgoal=use_subgoal, agent=agent)
+                             reshape_reward, use_subgoal=args.use_subgoal, agent=agent)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
@@ -283,12 +282,17 @@ else:
               'num_frames': 0}
 
 # Define logger and Tensorboard writer and CSV writer
-
 header = (["update", "episodes", "frames", "FPS", "duration"]
           + ["return_" + stat for stat in ['mean', 'std', 'min', 'max']]
           + ["success_rate"]
           + ["num_frames_" + stat for stat in ['mean', 'std', 'min', 'max']]
           + ["entropy", "value", "policy_loss", "value_loss", "loss", "grad_norm"])
+if args.use_subgoal:
+    status['num_primitive_steps'] = 0
+    header = (header
+              + ["primitive_steps"]
+              + ["num_primitive_steps_" + stat for stat in ['mean', 'std', 'min', 'max']])
+
 if args.tb:
     from tensorboardX import SummaryWriter
 
@@ -330,6 +334,10 @@ total_start_time = time.time()
 best_success_rate = 0
 best_mean_return = 0
 test_env_name = args.env
+# 'num_frames':
+# low-level task: number of primitive steps
+# high-level task: number of steps to complete some subgoals
+#                  num_primitive_steps is the num_frames in low-leve task case
 while status['num_frames'] < args.frames:
     # Update parameters
 
@@ -340,17 +348,27 @@ while status['num_frames'] < args.frames:
     status['num_frames'] += logs["num_frames"]
     status['num_episodes'] += logs['episodes_done']
     status['i'] += 1
+    if args.use_subgoal:
+        status['num_primitive_steps'] += logs['num_primitive_steps']
 
     # Print logs
 
     if status['i'] % args.log_interval == 0:
         total_ellapsed_time = int(time.time() - total_start_time)
-        fps = logs["num_frames"] / (update_end_time - update_start_time)
         duration = datetime.timedelta(seconds=total_ellapsed_time)
         return_per_episode = utils.synthesize(logs["return_per_episode"])
         success_per_episode = utils.synthesize(
             [1 if r > 0 else 0 for r in logs["return_per_episode"]])
+
+
+        if args.use_subgoal:
+            fps = logs['num_primitive_steps'] / (update_end_time - update_start_time)
+            num_primitive_steps_per_episode = utils.synthesize(logs["num_primitive_steps_per_episode"])
+        else:
+            fps = logs["num_frames"] / (update_end_time - update_start_time)
+        
         num_frames_per_episode = utils.synthesize(logs["num_frames_per_episode"])
+
 
         data = [status['i'], status['num_episodes'], status['num_frames'],
                 fps, total_ellapsed_time,
@@ -364,11 +382,16 @@ while status['num_frames'] < args.frames:
                       "S {:.2f} | F:xsmM {:.1f} {:.1f} {} {} | H {:.3f} | V {:.3f} | "
                       "pL {: .3f} | vL {:.3f} | L {:.3f} | gN {:.3f} | ")
 
+        if args.use_subgoal:
+            data = data + [status["num_primitive_steps"], *num_primitive_steps_per_episode.values()]
+            format_str = format_str + "pS {:06} | pS:xsmM {:.1f} {:.1f} {} {} | "
+
         logger.info(format_str.format(*data))
         if args.tb:
             assert len(header) == len(data)
             for key, value in zip(header, data):
                 writer.add_scalar(key, float(value), status['num_frames'])
+                writer.add_scalar(key, float(value), status['num_primitive_steps'])
 
         csv_writer.writerow(data)
 
@@ -381,7 +404,7 @@ while status['num_frames'] < args.frames:
             utils.save_model(acmodel, args.model)
 
         # Testing the model before saving
-        if not use_subgoal:
+        if not args.use_subgoal:
             agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
         if acmodel.use_vlm:
@@ -397,7 +420,7 @@ while status['num_frames'] < args.frames:
             args.val_episodes,
             pixel=use_pixel,
             concurrent_episodes=args.val_concurrent_episodes,
-            use_subgoal=use_subgoal)
+            use_subgoal=args.use_subgoal)
 
         agent.model.train()
         if acmodel.use_vlm:

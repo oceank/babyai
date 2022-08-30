@@ -124,7 +124,9 @@ use_subgoal=False):
                         actions[i].append(action[i].item())
             
             if use_subgoal:
-                many_obs, reward, done, subgoals_completion = agent.apply_skill_batch(many_obs, env.envs, action)
+                many_obs, reward, done, subgoals_consumed_steps = agent.apply_skill_batch(many_obs, env.envs, action)
+                reward = np.array(reward)
+                done = tuple(done)
             else:
                 many_obs, reward, done, _ = env.step(action)
             agent.analyze_feedback(reward, done)
