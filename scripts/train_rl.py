@@ -390,7 +390,6 @@ while status['num_frames'] < args.frames:
         if args.tb:
             assert len(header) == len(data)
             for key, value in zip(header, data):
-                writer.add_scalar(key, float(value), status['num_frames'])
                 writer.add_scalar(key, float(value), status['num_primitive_steps'])
 
         csv_writer.writerow(data)
