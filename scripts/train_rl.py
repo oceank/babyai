@@ -287,11 +287,14 @@ header = (["update", "episodes", "frames", "FPS", "duration"]
           + ["success_rate"]
           + ["num_frames_" + stat for stat in ['mean', 'std', 'min', 'max']]
           + ["entropy", "value", "policy_loss", "value_loss", "loss", "grad_norm"])
+# In the case of training a high-level policy that selects a low-level policy
+# A low-level policy is supposed to solve a subtask or complete a subgoal, which
+# is relevant to the initial mission gaol.
 if args.use_subgoal:
-    status['num_primitive_steps'] = 0
+    status['num_high_level_actions'] = 0 #status['num_primitive_steps'] = 0
     header = (header
-              + ["primitive_steps"]
-              + ["num_primitive_steps_" + stat for stat in ['mean', 'std', 'min', 'max']])
+              + ["high_level_actions"]
+              + ["num_high_level_actions" + stat for stat in ['mean', 'std', 'min', 'max']])
 
 if args.tb:
     from tensorboardX import SummaryWriter
@@ -349,26 +352,21 @@ while status['num_frames'] < args.frames:
     status['num_episodes'] += logs['episodes_done']
     status['i'] += 1
     if args.use_subgoal:
-        status['num_primitive_steps'] += logs['num_primitive_steps']
+        status['num_high_level_actions'] += logs['num_high_level_actions']
 
     # Print logs
 
     if status['i'] % args.log_interval == 0:
         total_ellapsed_time = int(time.time() - total_start_time)
         duration = datetime.timedelta(seconds=total_ellapsed_time)
+        fps = logs["num_frames"] / (update_end_time - update_start_time)
+        num_frames_per_episode = utils.synthesize(logs["num_frames_per_episode"])
         return_per_episode = utils.synthesize(logs["return_per_episode"])
         success_per_episode = utils.synthesize(
             [1 if r > 0 else 0 for r in logs["return_per_episode"]])
 
-
         if args.use_subgoal:
-            fps = logs['num_primitive_steps'] / (update_end_time - update_start_time)
-            num_primitive_steps_per_episode = utils.synthesize(logs["num_primitive_steps_per_episode"])
-        else:
-            fps = logs["num_frames"] / (update_end_time - update_start_time)
-        
-        num_frames_per_episode = utils.synthesize(logs["num_frames_per_episode"])
-
+            num_high_level_actions_per_episode = utils.synthesize(logs["num_high_level_actions_per_episode"])
 
         data = [status['i'], status['num_episodes'], status['num_frames'],
                 fps, total_ellapsed_time,
@@ -383,14 +381,14 @@ while status['num_frames'] < args.frames:
                       "pL {: .3f} | vL {:.3f} | L {:.3f} | gN {:.3f} | ")
 
         if args.use_subgoal:
-            data = data + [status["num_primitive_steps"], *num_primitive_steps_per_episode.values()]
-            format_str = format_str + "pS {:06} | pS:xsmM {:.1f} {:.1f} {} {} | "
+            data = data + [status["num_high_level_actions"], *num_high_level_actions_per_episode.values()]
+            format_str = format_str + "hla {:06} | hla:xsmM {:.1f} {:.1f} {} {} | "
 
         logger.info(format_str.format(*data))
         if args.tb:
             assert len(header) == len(data)
             for key, value in zip(header, data):
-                writer.add_scalar(key, float(value), status['num_primitive_steps'])
+                writer.add_scalar(key, float(value), status['num_frames'])
 
         csv_writer.writerow(data)
 

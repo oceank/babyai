@@ -329,10 +329,16 @@ class BaseAlgo(ABC):
             "episodes_done": self.log_done_counter,
         }
         if self.use_subgoal:
-            log["num_primitive_steps_per_episode"] = self.log_num_primitive_steps[-keep:]
-            log["num_primitive_steps"] = self.log_total_num_primitive_steps.item()
+            log["num_frames_per_episode"] = self.log_num_primitive_steps[-keep:]
+            log["num_frames"] = self.log_total_num_primitive_steps.item()
+
+            log["num_high_level_actions_per_episode"] = self.log_num_frames[-keep:]
+            log["num_high_level_actions"] = self.num_frames
 
             self.log_num_primitive_steps = self.log_num_primitive_steps[-self.num_procs:]
+        else:
+            log["num_frames_per_episode"] = self.log_num_frames[-keep:]
+            log["num_frames"] = self.num_frames
 
         self.log_done_counter = 0
         self.log_return = self.log_return[-self.num_procs:]
