@@ -64,18 +64,27 @@ class ManyEnvs(gym.Env):
     def seed(self, seeds):
         [env.seed(seed) for seed, env in zip(seeds, self.envs)]
 
+    def setup_subgoal(self, subgoal_indices):
+        is_setup = [env.setup_subgoal(subgoal_indice) for subgoal_indice, env in zip(subgoal_indices, self.envs)]
+        return is_setup
+
     def reset(self):
         many_obs = [env.reset() for env in self.envs]
         self.done = [False] * len(self.envs)
         return many_obs
 
-    def step(self, actions):
-        self.results = [env.step(action) if not done else self.last_results[i]
-                        for i, (env, action, done)
-                        in enumerate(zip(self.envs, actions, self.done))]
-        self.done = [result[2] for result in self.results]
-        self.last_results = self.results
-        return zip(*self.results)
+    def step(self, actions, active_env_indices=None):
+        result = None
+        if active_env_indices is None:
+            self.results = [env.step(action) if not done else self.last_results[i]
+                            for i, (env, action, done)
+                            in enumerate(zip(self.envs, actions, self.done))]
+            self.done = [result[2] for result in self.results]
+            self.last_results = self.results
+            results = self.results
+        else:
+            results = [self.envs[env_idx].step(action) for action, env_idx, in zip(actions, active_env_indices)]
+        return zip(*results)
 
     def render(self):
         raise NotImplementedError
@@ -108,6 +117,9 @@ use_subgoal=False):
 
         many_obs = env.reset()
 
+        if use_subgoal:
+            agent.reset_goal_and_subgoals(env.envs)
+
         cur_num_frames = 0
         num_frames = np.zeros((num_envs,), dtype='int64')
         returns = np.zeros((num_envs,))
@@ -124,7 +136,7 @@ use_subgoal=False):
                         actions[i].append(action[i].item())
             
             if use_subgoal:
-                many_obs, reward, done, subgoals_consumed_steps = agent.apply_skill_batch(many_obs, env.envs, action)
+                many_obs, reward, done, subgoals_consumed_steps = agent.apply_skill_batch(num_envs, many_obs, env, action.cpu().numpy())
                 reward = np.array(reward)
                 done = tuple(done)
             else:

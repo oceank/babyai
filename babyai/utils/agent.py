@@ -102,8 +102,8 @@ class SkillModelAgent(ModelAgent):
     Each model provides a policy to solve a corresponding subgoal
     """
 
-    # subgoals: list of subgoals. Each is a dictionary that has the properties,
-    #           "desc" and "instr".
+    # subgoals: a list of list of subgoals. Each list of subgoals is associated to one environment.
+    #           And each subgoal is a dictionary that has the properties, "desc" and "instr".
     # skill_library: list of skills. Each is a dictionary that has the properties,
     #           "model_name" and "model". The "model" is supposed to be able to
     #           solve a distribution of subgoals similar to that described by "desc".
@@ -137,16 +137,19 @@ class SkillModelAgent(ModelAgent):
 
         self.skill_library = skill_library
 
+        '''
         for skill in self.skill_library:
             skill['model'] = utils.load_model(skill['model_name'])
             if torch.cuda.is_available():
                 skill['model'].cuda()
             # load the learned vocab of the skill and use it to tokenize the subgoal
             skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])
-            skill["budget_steps"] = 24 # each skill will roll out 25 steps at most
+            skill["budget_steps"] = 24 # each skill will roll out 24 steps at most
+        '''
 
         # assume all skills use the same memory size for their LSTM componenet
         self.skill_memory_size = self.skill_library[0]['model'].memory_size
+
 
         self.current_subgoal_idx = None
         self.current_skill = None
@@ -155,31 +158,32 @@ class SkillModelAgent(ModelAgent):
         self.current_subgoal_obss_preprocessor = None
         self.current_subgoal_budget_steps = None
 
+
     # called by the reset() of an environment
-    def update_subgoal_desc_and_instr(self, idx, desc, instr):
-        self.subgoals[idx]['desc'] = desc
-        self.subgoals[idx]['instr'] = instr
+    def update_subgoal_desc_and_instr(self, env_idx, goal_idx, desc, instr):
+        self.subgoals[env_idx][goal_idx]['desc'] = desc
+        self.subgoals[env_idx][goal_idx]['desc']['instr'] = instr
 
     def select_new_subgoal(self, new_subgoal_idx):
         self.current_subgoal_idx = new_subgoal_idx
         self.setup_serving_subgoal(new_subgoal_idx)
 
-    def setup_serving_subgoal(self, subgoal_idx=0):
+    def setup_serving_subgoal(self, env_idx=0, subgoal_idx=0):
         self.current_subgoal_idx = subgoal_idx
 
         self.current_skill = self.skill_library[self.current_subgoal_idx]['model']
         self.current_subgoal_obss_preprocessor = self.skill_library[self.current_subgoal_idx]['obss_preprocessor']
         self.current_subgoal_budget_steps = self.skill_library[self.current_subgoal_idx]['budget_steps']
 
-        self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
-        self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
+        self.current_subgoal_desc = self.subgoals[env_idx][self.current_subgoal_idx]['desc']
+        self.current_subgoal_instr = self.subgoals[env_idx][self.current_subgoal_idx]['instr']
 
     def verify_current_subgoal(self, action):
-        return self.verify_goal_completion(self.current_subgoal_idx, action)
+        return self.verify_subgoal_completion(self.current_subgoal_idx, action)
 
-    def verify_subgoal_completion(self, subgoal_idx, action):
+    def verify_subgoal_completion(self, env_idx, subgoal_idx, action):
         is_completed = False
-        subgoal = self.subgoals[subgoal_idx]
+        subgoal = self.subgoals[env_idx][subgoal_idx]
         status = subgoal['instr'].verify(action)
         if (status == 'success'):
             #print(f"===> [Subgoal Completed] {subgoal['desc']}")
@@ -187,6 +191,7 @@ class SkillModelAgent(ModelAgent):
 
         return is_completed
     
+    # 'env' here refers to one single environment
     def verify_goal_completion(self, env, action):
         reward = 0
         done = False
@@ -194,84 +199,11 @@ class SkillModelAgent(ModelAgent):
         if env.instrs.verify(action) == 'success': # the initial goal is completed
             done = True
             reward = env.reward()
+        elif env.instrs.verify(action) == 'failure':
+            done = True
+            reward = 0
 
         return reward, done
-
-    # Currently, sequentially process the subgoal in each parallelingly running environment
-    def apply_skill_batch(self, many_obs, envs, subgoal_indices):
-        num_envs = len(many_obs)
-        subgoals_completion = []
-        subgoals_consumed_steps = torch.zeros(num_envs, device=self.device)
-        memories = torch.zeros(num_envs, self.skill_memory_size, device=self.device)
-        rewards = []
-        done = []
-
-        for env_idx in range(num_envs):
-            env = envs[env_idx]
-            subgoal_idx = subgoal_indices[env_idx]
-            obs = many_obs[env_idx]
-            memory = memories[env_idx].unsqueeze(dim=0)
-
-            steps = 0
-            skill = self.skill_library[subgoal_idx]
-            subgoal = env.sub_goals[subgoal_idx] #self.subgoals[subgoal_idx]
-            subgoal['instr'].reset_verifier(env)
-            is_completed = False
-            while steps < skill['budget_steps']:
-                # set the text observation (i.e., instruction) to be the description of the subgoal
-                obs["mission"] = subgoal['desc']
-
-                preprocessed_obs = skill['obss_preprocessor']([obs], device=self.device)
-
-                with torch.no_grad():
-                    model_results = skill['model'](preprocessed_obs, memory)
-                    dist = model_results['dist']
-                    value = model_results['value']
-                    memory = model_results['memory']
-
-                if self.argmax:
-                    action = dist.probs.argmax(1)
-                else:
-                    action = dist.sample()
-
-                # Single environment
-                # Check
-                #   the original mission is done but not completed: reward=0, done=True
-                #   the original mission is completed: reward in (0,1), done=True
-                obs, reward, done_, _ = env.step(action.cpu().numpy())
-
-                steps += 1
-
-                status = subgoal['instr'].verify(action)
-                if (status == 'success'):
-                    #print(f"===> [Subgoal Completed] {subgoal['desc']}")
-                    is_completed = True
-                    
-                if done_ or is_completed:
-                    break
-
-            if done_:
-                obs = env.reset()
-            
-            rewards.append(reward)
-            done.append(done_)
-            subgoals_completion.append(is_completed)
-            subgoals_consumed_steps[env_idx] = steps
-
-            # Update the next observation for the high-level policy
-            # when the budget of steps are used or the subgoal is completed earlier
-            many_obs[env_idx] = obs
-
-            # The verification of goal completion is done in the above code
-            #   "env.step(action.cpu().numpy())"
-            #reward, done = self.verify_goal_completion(env, action.cpu().numpy())
-            
-
-        return many_obs, rewards, done, subgoals_consumed_steps, #subgoals_completion
-        
-
-    def apply_skill(self, obs, env, subgoal_idx):
-        return self.apply_skill_batch([obs], [env], [subgoal_idx])
 
     def initialize_mission(self, env):
         # Update the agent's goal
@@ -284,6 +216,158 @@ class SkillModelAgent(ModelAgent):
             self.update_subgoal_desc_and_instr(idx, subgoal['desc'], subgoal['instr'])
 
 
+    def reset_goal_and_subgoals(self, env):
+        envs = env
+        if not isinstance(env, list): # a single env instance
+            envs = [env]
+
+        num_envs = len(envs)
+        subgoals = [None] * num_envs
+        goal = [None] * num_envs
+        for idx, env in enumerate(envs):
+            subgoals[idx] = env.sub_goals
+            goal[idx] = {'desc':env.mission, 'instr':env.instrs}
+        self.subgoals = subgoals
+        self.goal = goal
+      
+    # Functionality: determine the next primitive action for each environment
+    #   For each skill, filter the correspondding observations and change the observation's
+    #   instruction to be the corresponding subgoal description.
+    #   Return a list of actions
+    # Input:
+    #   skill_indices: it is assumed to be a fixed list between two calls of get_primitive_actions()
+    #                   if no subgoal is done between the two calls
+    def get_primitive_actions(self, many_obs, skill_indices, skill_env_map, memories):
+        actions = []
+        active_env_indices = []
+
+        for skill_indice in skill_indices:
+            active_env_indices += skill_env_map[skill_indice]
+            skill = self.skill_library[skill_indice]
+
+            obss = []
+            for env_idx in skill_env_map[skill_indice]:
+                obs = many_obs[env_idx]
+                obs["mission"] = self.subgoals[env_idx][skill_indice]['desc']
+                obss.append(obs)
+
+            preprocessed_obs = skill['obss_preprocessor'](obss, device=self.device)
+            memory = memories[skill_env_map[skill_indice], :]
+            with torch.no_grad():
+                model_results = skill['model'](preprocessed_obs, memory)
+                dist = model_results['dist']
+                value = model_results['value']
+                memory = model_results['memory']
+            memories[skill_env_map[skill_indice], :] = memory
+
+            if self.argmax:
+                action = dist.probs.argmax(1)
+            else:
+                action = dist.sample()
+
+            actions += action.cpu().tolist()
+
+        return actions, active_env_indices
+
+
+    def apply_skill(self, obs, env, subgoal_idx):
+        num_envs = 1
+        obs, reward, done, subgoals_consumed_steps = self.apply_skill_batch(num_envs, [obs], env, subgoal_idx)
+        return obs[0], reward[0], done[0], subgoals_consumed_steps[0]
+    
+    # Functionality:
+    #   Apply selected skill and subgoal in each parallel environment instance until whichever of the
+    #   following conditions is satisfied first. We call this a completion of the high-level action.
+    #       1) the subgoal is done (success or failure)
+    #       2) the mission goal is done
+    #       3) the budget of primitive steps for the skill execution is reached
+    #   Once the agent completes the high-level action in one environment, the environment will
+    #   temporarily stop taking any primitive actions until the high-level actions in other environment
+    #   are completed. When high-level actions in all environment are completed, the agent will then go
+    #   to decide new high-level actions for all parallely running environment. 
+    # Input:
+    #   many_obs: list of observations from multiple parallelly running environment instances
+    #   env: env is an instance of class ParallelEnv
+    #   subgoal_indices: 1-D numpy array.
+    #   skill_selections:  list of skill IDs (i.e., indices). Each skill is purposed to solve
+    #                      a subtask in the corresponding environment instance. It will be useful
+    #                      when using subgoal description to match skill description
+    # Output:
+    #   obs: list of observations
+    #   reward: list of rewards
+    #   done: list of 'done' status
+    #   subgoals_consumed_steps: list of each subgoal's consumed steps 
+    # Questions:
+    #   1. does the agent need to track the reset mission goal and subgoals in each environment
+    #   2. how to temporarily halt an environment when the assigned high-level action is completed
+    def apply_skill_batch(self, num_envs, many_obs, env, subgoal_indices):
+        is_setup = env.setup_subgoal(subgoal_indices)
+
+        active_env_indices = range(num_envs)
+
+        # skill indice == subgoal indice. This will be changed once skill and subgoal is differentiated
+        skill_indice_per_env = subgoal_indices
+        env0_skill_indice = subgoal_indices[0]
+        skill_env_map = {}
+        for subgoal_indice, env_idx in zip(subgoal_indices, active_env_indices):
+            if subgoal_indice in skill_env_map:
+                skill_env_map[subgoal_indice].append(env_idx)
+            else:
+                skill_env_map[subgoal_indice] = [env_idx]
+        
+        # ensure the env.envs[0] is at the first location of the list, active_env_indices,
+        # if it is still active. This is to facility the processing in step() in penv.py.
+        #active_env_indices = skill_env_map[env0_skill_indice].copy()
+        skill_indices = [env0_skill_indice]
+        for skill_indice in skill_env_map:
+            if skill_indice != env0_skill_indice:
+                #active_env_indices += skill_env_map[skill_indice]
+                skill_indices.append(skill_indice)
+        
+        subgoals_consumed_steps = [0]*num_envs
+        memories = torch.zeros(num_envs, self.skill_memory_size, device=self.device)
+        rewards = [0]*num_envs
+        dones = [False]*num_envs
+
+        elapsed_steps = 0
+        num_active_envs = num_envs
+        while num_active_envs > 0: # not all high-level actions completed
+            # determine the next primitive action for each environment
+            actions, active_env_indices =  self.get_primitive_actions(many_obs, skill_indices, skill_env_map, memories)
+
+            # call step() to perform one primitive step using a skill in one env
+            # env is an instance of class ParallelEnv
+            # The returned 'info' indicates if the subgoal is done
+            obs, reward, done, info = env.step(actions, active_env_indices)
+            elapsed_steps += 1
+
+            # analyze if completion status of high-level actions
+            # check if the mission in any active envirionment is done
+            #many_obs = list(many_obs)
+            for idx, active_env_indice in zip(range(num_active_envs), active_env_indices):
+                many_obs[active_env_indice] = obs[idx]
+                halt_the_env = False
+                skill_ID = skill_indice_per_env[active_env_indice]
+                if done[idx]:
+                    dones[active_env_indice] = True
+                    rewards[active_env_indice] = reward[idx]
+                    self.subgoals[active_env_indice] = env.envs[active_env_indice].sub_goals
+                    halt_the_env = True
+                
+                if (not halt_the_env) and (info[idx] or elapsed_steps == self.skill_library[skill_ID]['budget_steps']):
+                    halt_the_env = True
+                
+                if halt_the_env:
+                    subgoals_consumed_steps[active_env_indice] = elapsed_steps
+                    skill_env_map[skill_ID].remove(active_env_indice)
+                    if len(skill_env_map[skill_ID]) == 0:
+                        del skill_env_map[skill_ID]
+                        skill_indices.remove(skill_ID)
+                    num_active_envs -= 1
+            #many_obs = tuple(many_obs)
+
+        return many_obs, rewards, dones, subgoals_consumed_steps
+        
 
 class SubGoalModelAgent(ModelAgent):
     """A subgoal-models-based agent. This agent behaves using a list of models. Each model provides a policy to solve the corresponding subgoal"""

@@ -27,19 +27,47 @@ class RoomGridLevel(RoomGrid):
         room_size=8,
         **kwargs
     ):
-        self.sub_goals = {}
+        # list of subgoals supports solving a goal
+        # it should be specified in gen_mission() in each environment
+        self.sub_goals = []
+        self.num_sub_goals = len(self.sub_goals)
+        # current_subgoal_idx is used to verify the corresponding subgoal
+        # at each step (primitive step in the environment, not a high-level action step)
+        self.current_subgoal_idx=-1
+        self.current_subgoal = None
 
         super().__init__(
             room_size=room_size,
             **kwargs
         )
 
+    # hgih_level_action: an integer in the range, [0, self.num_sub_goals-1]
+    def setup_subgoal(self, high_level_action):
+        if high_level_action<0 or high_level_action>=self.num_sub_goals:
+            return False
+        
+        self.current_subgoal_idx = high_level_action
+        self.current_subgoal = self.sub_goals[self.current_subgoal_idx]
+        self.current_subgoal['instr'].reset_verifier(self)
+
+        return True
+
+    def verify_current_subgoal(self, action):
+        done = False
+        status = self.current_subgoal['instr'].verify(action)
+        if status == 'success':
+            done = True
+        elif status == 'failure':
+            done = True
+
+        return done
+
     def reset(self, **kwargs):
         obs = super().reset(**kwargs)
 
         # Recreate the verifier
         self.instrs.reset_verifier(self)
-        if len(self.sub_goals):
+        if self.num_sub_goals:
             #print(f"List of subgoals for the mission:")
             for sub_goal in self.sub_goals:
                 sub_goal['instr'].reset_verifier(self)
@@ -65,15 +93,12 @@ class RoomGridLevel(RoomGrid):
         if action == self.actions.drop:
             self.update_objs_poss()
 
+        # if the current subgoal is done
+        if self.current_subgoal_idx != -1:
+            info = self.verify_current_subgoal(action)
+
         # If we've successfully completed the mission
         status = self.instrs.verify(action)
-
-        '''
-        if len(self.sub_goals):
-            for sub_goal in self.sub_goals:
-                if sub_goal['instr'].verify(action) == 'success':
-                    print(f"===> [Subgoal Completed] {sub_goal['desc']}")
-        '''
 
         if status == 'success':
             done = True
@@ -102,6 +127,7 @@ class RoomGridLevel(RoomGrid):
 
                 # Generate the mission
                 self.gen_mission()
+                self.num_sub_goals = len(self.sub_goals)
 
                 # Validate the instructions
                 self.validate_instrs(self.instrs)
@@ -128,7 +154,7 @@ class RoomGridLevel(RoomGrid):
         self.mission = self.surface
 
         # Generate the surface form for the sub-goal instructions
-        if len(self.sub_goals):
+        if self.num_sub_goals:
             for sub_goal in self.sub_goals:
                 sub_goal['desc'] = sub_goal['instr'].surface(self)
 

@@ -36,3 +36,16 @@ def save_model(model, model_name):
         model.history = history
     else:
         torch.save(model, path)
+
+def load_skill(skill_model_name, budget_steps):
+    skill = {}
+
+    skill['model_name'] = skill_model_name
+    skill['model'] = load_model(skill['model_name'])
+
+    # load the learned vocab of the skill and use it to tokenize the subgoal
+    skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])
+    skill["budget_steps"] = budget_steps
+
+    return skill
+        

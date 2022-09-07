@@ -90,22 +90,26 @@ for i in range(args.procs):
 
 goal = None
 subgoals = None
-agent = None
+train_agent = None
 if args.use_subgoal:
     assert args.skill_model_name_list is not None
     skill_model_name_list = args.skill_model_name_list.split(',')
 
-    env = envs[0]
-    goal = {'desc':env.mission, 'instr':env.instrs}
+    '''
+    num_envs = args.procs
+    subgoals = [None] * num_envs
+    goal = [None] * num_envs
+    for idx, env in enumerate(envs):
+        subgoals[idx] = env.sub_goals
+        goal[idx] = {'desc':env.mission, 'instr':env.instrs}
+    '''
 
-    #print(f"List of subgoals for the mission:")
-    subgoals = env.sub_goals
     skill_library = []
+    budget_steps = 24 # each skill will roll out 24 steps at most
     for skill_model_name in skill_model_name_list:
-        skill = {}
-        skill['model_name'] = skill_model_name
+        skill = utils.load_skill(skill_model_name, budget_steps)
         skill_library.append(skill)
-        #print(f"*** Subgoal: {subgoal['desc']}")
+
 
 # Define model name
 suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
@@ -248,7 +252,7 @@ if torch.cuda.is_available():
 
 
 if args.use_subgoal:
-    agent = SkillModelAgent(
+    train_agent = SkillModelAgent(
         acmodel, obss_preprocessor, argmax=True,
         subgoals=subgoals, goal=goal, skill_library=skill_library)
 
@@ -260,7 +264,7 @@ if args.algo == "ppo":
                              args.gae_lambda,
                              args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                              args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
-                             reshape_reward, use_subgoal=args.use_subgoal, agent=agent)
+                             reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
@@ -294,7 +298,7 @@ if args.use_subgoal:
     status['num_high_level_actions'] = 0 #status['num_primitive_steps'] = 0
     header = (header
               + ["high_level_actions"]
-              + ["num_high_level_actions" + stat for stat in ['mean', 'std', 'min', 'max']])
+              + ["num_high_level_actions_" + stat for stat in ['mean', 'std', 'min', 'max']])
 
 if args.tb:
     from tensorboardX import SummaryWriter
@@ -401,7 +405,11 @@ while status['num_frames'] < args.frames:
             utils.save_model(acmodel, args.model)
 
         # Testing the model before saving
-        if not args.use_subgoal:
+        if args.use_subgoal:
+            agent = SkillModelAgent(
+                args.model, obss_preprocessor, argmax=True,
+                subgoals=None, goal=None, skill_library=skill_library)
+        else:
             agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
         if acmodel.use_vlm:
