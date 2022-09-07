@@ -415,8 +415,9 @@ while status['num_frames'] < args.frames:
         if acmodel.use_vlm:
             history = acmodel.history
             acmodel.history = []
-            agent.model = acmodel
-            agent.model.eval()
+        
+        agent.model = acmodel
+        agent.model.eval()
 
         logs = batch_evaluate(
             agent,
@@ -428,6 +429,7 @@ while status['num_frames'] < args.frames:
             use_subgoal=args.use_subgoal)
 
         agent.model.train()
+
         if acmodel.use_vlm:
             acmodel.history = history
 
