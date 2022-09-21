@@ -1,3 +1,4 @@
+from typing import List
 import copy
 import torch
 import torch.nn as nn
@@ -7,6 +8,7 @@ from torch.distributions.categorical import Categorical
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import babyai.rl
 from babyai.rl.utils.supervised_losses import required_heads
+from babyai.utils.format import RawImagePreprocessor
 
 from transformers import top_k_top_p_filtering
 from einops import rearrange
@@ -556,3 +558,217 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
                 max_length=self.max_lang_model_input_len, padding="max_length", truncation=True,
                 return_tensors='pt')
         return encoded_input['input_ids']
+
+
+# ACModel Using Flamingo to provide the feature to the policy and value headers
+class FlamingoACModel(nn.Module, babyai.rl.ACModel):
+    def __init__(
+        self, obs_space, num_of_actions,
+        arch="bow_endpool_res",
+        vlm=None, tokenizer=None,
+        max_desc_len=0, max_lang_model_input_len=0, max_history_window_vlm=0,
+        top_k=50, top_p=0.95, sample_next_token=True):
+
+        super().__init__()
+
+        self.use_vlm = True
+
+        # Use the Word Emebdding of the GPT2 model
+        self.tokenizer=tokenizer
+        self.desc_vocabulary_size = vlm.wte.num_embeddings
+        self.desc_embedding_dim   = vlm.wte.embedding_dim
+        self.embedding_size = vlm.wte.embedding_dim
+            
+        # each elem in self.history is a tuple, (Ov, Ol)
+        # Ov: (batch, 3, 7, 7)
+        # Ol: [instruction_length + description_length], sequence of tokens
+        self.history = []
+        self.max_history_window_vlm = max_history_window_vlm
+        self.max_desc_len = max_desc_len # the maximum length of tokens for a generated sentence at one time step
+        self.max_lang_model_input_len = max_lang_model_input_len # the maximum length of tokens the language model and tokenizer can handel
+        self.top_k = top_k
+        self.top_p = top_p
+        self.sample_next_token = sample_next_token
+
+        # Decide which components are enabled
+        self.arch = arch
+        self.obs_space = obs_space
+
+        for part in self.arch.split('_'):
+            if part not in ['original', 'bow', 'pixels', 'endpool', 'res']:
+                raise ValueError("Incorrect architecture name: {}".format(self.arch))
+
+        self.image_preproc = RawImagePreprocessor()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.image_conv = nn.Sequential(*[
+            ImageBOWEmbedding(obs_space['image'], self.embedding_size),
+            nn.Conv2d(
+                in_channels=self.embedding_size, out_channels=self.embedding_size,
+                kernel_size=(3, 3), stride=1, padding=1),
+            nn.BatchNorm2d(self.embedding_size),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=self.embedding_size, out_channels=self.embedding_size, kernel_size=(3, 3), padding=1),
+            nn.BatchNorm2d(self.embedding_size),
+            nn.ReLU(),
+        ])
+
+        #self.fc = nn.Linear(self.max_lang_model_input_len*self.embedding_size, self.embedding_size)
+
+        # Define actor's model
+        self.actor = nn.Sequential(
+            nn.Linear(self.embedding_size, 64),
+            nn.Tanh(),
+            nn.Linear(64, num_of_actions)
+        )
+
+        # Define critic's model
+        self.critic = nn.Sequential(
+            nn.Linear(self.embedding_size, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
+        )
+
+        # Initialize parameters correctly
+        self.apply(initialize_parameters)
+
+        # Avoid the impact of the above parameter initialization
+        self.vlm=vlm
+        self.tokenizer=tokenizer
+
+        self.to(self.device)
+
+    # For each text sequence, added four tokens
+    # Prefix: 
+    #   <image> : 27(<),  9060(image),    29(>)
+    # Postfix:
+    #   tokenizer.sep_token
+    #
+    # Output:
+    # encoded_input: a dict that has the attributes,
+    #   input_ids (tokens, int) :   (batch_size, max_lang_model_input_len)
+    #   attention_mask (0/1)    :   (batch_size, max_lang_model_input_len)
+    #   media_locations (bool)  :   (batch_size, max_lang_model_input_len)
+    #   input_ids_len (int)     :   (batch_size, 1)
+    #   input_ids_len_per_sample_per_seq: List[List[int]]
+    def create_text_tokens(self, batch_sentences:List[List[str]], record_subgoal_time_step=False) -> dict:
+        altered_batch_sentences = [
+            "".join(["<image>"+sentence+self.tokenizer.sep_token for sentence in sample])
+            for sample in batch_sentences
+        ]
+        
+        encoded_input = self.tokenizer(
+            altered_batch_sentences,
+            max_length=self.max_lang_model_input_len, padding="max_length",
+            truncation=True, return_tensors="pt")
+
+        media_locations = torch.zeros(encoded_input['input_ids'].shape, dtype=torch.bool)
+        num_samples, num_tokens = encoded_input['input_ids'].shape
+        subgoal_indice_per_sample = []
+        for i_sample in range(num_samples):
+            media_start_locs = [
+                idx for idx in range(num_tokens-2) 
+                if (encoded_input['input_ids'][i_sample][idx]==27
+                    and encoded_input['input_ids'][i_sample][idx+1]==9060
+                    and encoded_input['input_ids'][i_sample][idx+2]==29)
+            ]
+            for loc in media_start_locs:
+                media_locations[i_sample,loc] = True
+
+            if record_subgoal_time_step:
+                subgoal_indices = []
+                if len(media_start_locs) > 1:
+                    subgoal_indices = [media_start_locs[i]-1 for i in range(1, len(media_start_locs))]
+                last_valid_sep_idx=media_start_locs[-1]+3
+                # Find the index of the seperator token for the last text sequence in the current sample
+                while last_valid_sep_idx < num_tokens:
+                    if encoded_input['input_ids'][i_sample][last_valid_sep_idx] == 50256:
+                        break
+                    else:
+                        last_valid_sep_idx += 1   
+                subgoal_indices.append(last_valid_sep_idx)
+                subgoal_indice_per_sample.append(subgoal_indices)
+        
+        encoded_input['media_locations'] = media_locations
+        input_ids_len = encoded_input['attention_mask'].sum(dim=1)
+        for key in encoded_input:
+            encoded_input[key] = encoded_input[key].to(self.device)
+
+        # each sample has at least one image    
+        # lengths of the original sentences in the batch
+        vlm_input = {"encoded_input":encoded_input, "input_ids_len":input_ids_len}
+        if record_subgoal_time_step:
+            vlm_input['subgoal_indice_per_sample'] = torch.tensor(subgoal_indice_per_sample, device=self.device)
+
+        return vlm_input
+
+    # FixMe: Currently only support only one process/one running envirionment
+    # obss: a list of obs object that is a dict of "image" and "mission"
+    #       obs['image']    : visual observation from the environment
+    #       obs['mission]   : a string
+    def forward(self, obss, record_subgoal_time_step=False):
+        images = self.image_preproc(obss, device=self.device)
+        images = images.unsqueeze(dim=0)
+        batch_sentences = [[obs['mission'] for obs in obss]]
+        batch_size = len(batch_sentences) # it is 1 for now.
+
+        # keys: input_ids, attention_mask, media_locations, input_ids_len
+        #       *input_ids_len_per_sample_per_seq: List[List[int]]
+        #       image_embeds
+        vlm_input = self.prepare_vlm_input(images, batch_sentences, record_subgoal_time_step)
+
+        vlm_output = self.vlm(**vlm_input['encoded_input'], return_dict=True, extract_feature=True)
+        # embedding: (b, max_lang_model_input_len, gpt2_embedding_size)
+        embedding = vlm_output.last_hidden_state
+        #embedding = embedding.masked_fill(encoded_input['attention_mask']==0, 0)
+
+        num_subgoals = [len(subgoal_indices) for subgoal_indices in vlm_input['subgoal_indice_per_sample'] ]
+
+
+        # Leave the caller of the forward() to decide how to use the returned values
+        # Use the values at the index of last unmasked token, or
+        # Use the values at the indices of the ending of all subgoals's description
+        #
+        # dist: (b, max_lang_model_input_len, num_of_actions)
+        #   dist.sample(): (b, max_lang_model_input_len)
+        # value: (b, max_lang_model_input_len)
+        x = self.actor(embedding)
+        dist = Categorical(logits=F.log_softmax(x, dim=-1))
+
+        x = self.critic(embedding)
+        value = x.squeeze(-1)
+
+        # encoded_input['subgoal_indice_per_sample']: list of lists. The element indicates the time step of each subgoal.
+        # batch_size (number of processes) = length of encoded_input['subgoal_indice_per_sample']
+        # number of subgoals in each episode i = length of encoded_input['subgoal_indice_per_sample'][0][i]
+        result = {'dist': dist, 'value': value}
+        if record_subgoal_time_step:
+            result['input_ids_len'] = vlm_input['input_ids_len']
+            result['subgoal_indice_per_sample'] = vlm_input['subgoal_indice_per_sample']
+
+        return result
+
+    # Inputs:
+    #   images: (batch, times, channel, height, width)
+    #   texts : a list of text, len(texts)==batch_size
+    # Output:
+    #   encoded_input: a transformers BatchEncoding object (a dict)
+    def prepare_vlm_input(self, images, batch_sentences, record_subgoal_time_step=False):
+        batch_size = len(batch_sentences)
+
+        encoded_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step)
+        
+        images = images.to(self.device)
+
+        images = rearrange(images, 'b t h w c -> (b t) c h w')
+
+        # images shape: (batch_size*times, channel, height, width)
+        # image_embedding shape: (batch_size*times, featture_dim, height, width)
+        if 'pixel' in self.arch:
+            images /= 256.0
+        image_embeds = self.image_conv(images)
+        # convert to the shape : (batch_size, times, height*width, feature_dim)
+        image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
+        encoded_input['image_embeds'] = image_embeds
+             
+        return encoded_input

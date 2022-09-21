@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 
 
-from babyai.rl.algos.base import BaseAlgo
+from babyai.rl.algos.base import BaseAlgo, BaseAlgoFlamingoHRL
 
 
 class PPOAlgo(BaseAlgo):
@@ -172,3 +172,144 @@ class PPOAlgo(BaseAlgo):
         batches_starting_indexes = [indexes[i:i + num_indexes] for i in range(0, len(indexes), num_indexes)]
 
         return batches_starting_indexes
+
+
+class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
+    """The class for the Proximal Policy Optimization algorithm
+    ([Schulman et al., 2015](https://arxiv.org/abs/1707.06347))."""
+
+    def __init__(self, envs, acmodel, discount=0.99, lr=7e-4, beta1=0.9, beta2=0.999,
+                 gae_lambda=0.95,
+                 entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5,
+                 adam_eps=1e-5, clip_eps=0.2, epochs=4, preprocess_obss=None,
+                 reshape_reward=None, agent=None, num_episodes=None):
+        num_episodes = num_episodes or 10
+
+        super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+                         value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
+                         agent=agent, num_episodes=num_episodes)
+
+        self.clip_eps = clip_eps
+        self.epochs = epochs
+
+        self.optimizer = torch.optim.Adam(self.acmodel.parameters(), lr, (beta1, beta2), eps=adam_eps)
+
+    def update_parameters(self):
+        # Collect experiences
+
+        exps, logs = self.collect_experiences()
+        '''
+        exps is a DictList with the following keys:
+            'obs', 'action', 'value', 'reward', 'advantage', 'returnn', 'log_prob'.
+        Each attribute, e.g. `exps.reward` is a list with a length of self.num_episode and each of its
+        element is a list represents the reward at a time step. Here, the time step corresponds to the
+        high-level policy in the HRL. That is, it is the time point when the corresponding subgoal is done.
+
+        '''
+        num_envs = 1 # num of processes
+        num_of_subgoals_per_episode = [len(actions) for actions in exps.action]
+
+        for _ in range(self.epochs):
+            # Initialize log values
+
+            log_entropies = []
+            log_values = []
+            log_policy_losses = []
+            log_value_losses = []
+            log_grad_norms = []
+
+            log_losses = []
+
+
+            # for each epoch, we create self.num_episodes batches. One episode maps to one batch.
+            episode_ids = numpy.arange(0, self.num_episodes)
+            episode_ids = numpy.random.permutation(episode_ids)
+            for ep_idx in episode_ids:
+
+                batch_entropy = 0
+                batch_value = 0
+                batch_policy_loss = 0
+                batch_value_loss = 0
+                batch_loss = 0
+
+                num_of_subgoals = num_of_subgoals_per_episode[ep_idx]
+                # Create an episode of experience
+                ep = exps[ep_idx]
+                model_results = self.acmodel(ep.obs, record_subgoal_time_step=True)
+                dist = model_results['dist']
+                raw_value = model_results['value']
+                # subgoal_indice_per_sample: list of lists
+                # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                input_ids_len = model_results['input_ids_len']
+
+                raw_entropy = dist.entropy()
+
+                # currently support one process/one environment
+                value_subgoals = raw_value[range(num_envs), subgoal_indice_per_sample[0]]
+                entropy_subgoals = raw_entropy[range(num_envs), subgoal_indice_per_sample[0]]
+
+                for i in range(num_of_subgoals):
+                    value = value_subgoals[i]
+                    entropy = entropy_subgoals[i]
+                    # Compute loss
+                    #entropy = dist.entropy().mean()
+
+                    ratio = torch.exp(dist.log_prob(ep.action[i])[0, i] - ep.log_prob[i])
+                    surr1 = ratio * ep.advantage[i]
+                    surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep.advantage[i]
+                    policy_loss = -torch.min(surr1, surr2).mean()
+
+                    value_clipped = ep.value[i] + torch.clamp(value - ep.value[i], -self.clip_eps, self.clip_eps)
+                    surr1 = (value - ep.returnn[i]).pow(2)
+                    surr2 = (value_clipped - ep.returnn[i]).pow(2)
+                    value_loss = torch.max(surr1, surr2).mean()
+
+                    loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
+
+                    # Update batch values
+
+                    batch_entropy += entropy.item()
+                    batch_value += value.mean().item()
+                    batch_policy_loss += policy_loss.item()
+                    batch_value_loss += value_loss.item()
+                    batch_loss += loss
+
+
+                # Update batch values
+
+                batch_entropy /= num_of_subgoals
+                batch_value /= num_of_subgoals
+                batch_policy_loss /= num_of_subgoals
+                batch_value_loss /= num_of_subgoals
+                batch_loss /= num_of_subgoals
+
+                # Update actor-critic
+
+                self.optimizer.zero_grad()
+                batch_loss.backward()
+                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.acmodel.parameters() if p.grad is not None) ** 0.5
+                torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
+                self.optimizer.step()
+
+                # Update log values
+
+                log_entropies.append(batch_entropy)
+                log_values.append(batch_value)
+                log_policy_losses.append(batch_policy_loss)
+                log_value_losses.append(batch_value_loss)
+                log_grad_norms.append(grad_norm.item())
+                log_losses.append(batch_loss.item())
+
+        # Log some values
+
+        logs["entropy"] = numpy.mean(log_entropies)
+        logs["value"] = numpy.mean(log_values)
+        logs["policy_loss"] = numpy.mean(log_policy_losses)
+        logs["value_loss"] = numpy.mean(log_value_losses)
+        logs["grad_norm"] = numpy.mean(log_grad_norms)
+        logs["loss"] = numpy.mean(log_losses)
+
+        return logs

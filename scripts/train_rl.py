@@ -19,7 +19,7 @@ import babyai
 import babyai.utils as utils
 import babyai.rl
 from babyai.arguments import ArgumentParser
-from babyai.model import ACModel
+from babyai.model import ACModel, FlamingoACModel
 from babyai.evaluate import batch_evaluate
 from babyai.utils.agent import ModelAgent, SkillModelAgent
 from gym_minigrid.wrappers import RGBImgPartialObsWrapper
@@ -72,6 +72,9 @@ parser.add_argument("--use-subgoal", action="store_true", default=False,
                     help="use a SkillModelAgent and a library of skills to complete the goal")
 parser.add_argument("--skill-model-name-list", type=str, default=None,
                     help="list of model name of each skill")
+
+parser.add_argument("--num-episodes", type=int, default=4,
+                    help="number of episodes on procesess will run to collect experience before model update. used in HRL & VLM.")
 
 args = parser.parse_args()
 
@@ -160,10 +163,12 @@ if args.use_vlm:
 
     tokenizer = GPT2Tokenizer.from_pretrained(lang_model_name, return_dict=True)
     tokenizer.pad_token = tokenizer.eos_token # pad token
+    tokenizer.sep_token = tokenizer.eos_token # sequence separator token
 
     lang_model = GPT2LMHeadModel.from_pretrained(
         lang_model_name,
-        pad_token_id=tokenizer.pad_token_id)
+        pad_token_id=tokenizer.pad_token_id,
+        sep_token_id = tokenizer.sep_token_id)
 
     lang_model_config = lang_model.config
     dim_lang_embeds = lang_model_config.n_embd
@@ -227,6 +232,20 @@ acmodel = utils.load_model(args.model, raise_not_found=False)
 if acmodel is None:
     if args.pretrained_model:
         acmodel = utils.load_model(args.pretrained_model, raise_not_found=True)
+    elif args.use_subgoal and args.use_vlm:
+        acmodel = FlamingoACModel(
+            obss_preprocessor.obs_space, num_of_actions,
+            args.arch,
+            # the following parameters are used for using the vlm
+            vlm=vlm,
+            tokenizer=tokenizer,
+            max_desc_len=args.max_desc_len,
+            max_lang_model_input_len=args.max_lang_model_input_len,
+            max_history_window_vlm=args.max_history_window_vlm,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            sample_next_token=args.sample_next_token
+        )
     else:
         acmodel = ACModel(
             obss_preprocessor.obs_space, num_of_actions,
@@ -260,11 +279,17 @@ if args.use_subgoal:
 
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
 if args.algo == "ppo":
-    algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
-                             args.gae_lambda,
-                             args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
-                             args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
-                             reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent)
+    if args.use_subgoal and args.use_vlm:
+        algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
+                                args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
+                                args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
+                                reshape_reward, agent=train_agent, num_episodes=args.num_episodes)
+    else:
+        algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
+                                args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
+                                args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
+                                reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent)
+
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
@@ -408,11 +433,11 @@ while status['num_frames'] < args.frames:
         if args.use_subgoal:
             agent = SkillModelAgent(
                 args.model, obss_preprocessor, argmax=True,
-                subgoals=None, goal=None, skill_library=skill_library)
+                subgoals=None, goal=None, skill_library=skill_library, use_vlm=args.use_vlm)
         else:
             agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
-        if acmodel.use_vlm:
+        if (not args.use_subgoal) and acmodel.use_vlm:
             history = acmodel.history
             acmodel.history = []
         
@@ -430,7 +455,7 @@ while status['num_frames'] < args.frames:
 
         agent.model.train()
 
-        if acmodel.use_vlm:
+        if (not args.use_subgoal) and acmodel.use_vlm:
             acmodel.history = history
 
         mean_return = np.mean(logs["return_per_episode"])

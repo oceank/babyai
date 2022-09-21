@@ -115,7 +115,7 @@ class SkillModelAgent(ModelAgent):
     #           information and BabyAI language
     # Which skill to use at each time-step of solving the (high-level) goal
 
-    def __init__(self, model_or_name, obss_preprocessor, argmax, subgoals, goal, skill_library):
+    def __init__(self, model_or_name, obss_preprocessor, argmax, subgoals, goal, skill_library, use_vlm=False):
         if obss_preprocessor is None:
             assert isinstance(model_or_name, str)
             obss_preprocessor = utils.ObssPreprocessor(model_or_name)
@@ -129,6 +129,8 @@ class SkillModelAgent(ModelAgent):
         self.device = next(self.model.parameters()).device
         self.argmax = argmax
         self.memory = None
+
+        self.use_vlm = use_vlm
 
         # Currently only support training and testing with one environment instance,
         # but not multiple environment instances
@@ -368,6 +370,64 @@ class SkillModelAgent(ModelAgent):
 
         return many_obs, rewards, dones, subgoals_consumed_steps
         
+    def analyze_feedback(self, reward, done):
+        if self.use_vlm:
+            for i in range(len(done)):
+                if done[i]:
+                    self.memory[i] = []
+        else:
+            super().act_batch(reward, done)
+
+    def act_batch(self, many_obs):
+
+        if self.use_vlm:
+            if self.memory is None:
+                self.memory = [[many_obs[i]] for i in range(len(many_obs))]
+            elif len(self.memory) != len(many_obs):
+                raise ValueError("stick to one batch size for the lifetime of an agent")
+            else:
+                for i in range(len(many_obs)):
+                    self.memory[i].append(many_obs[i])
+
+            
+            for i in range(len(self.memory)):
+                obss_to_now = self.memory[i]
+                with torch.no_grad():
+                    # pass all observed up to now in the episode i
+                    model_results = self.model(obss_to_now, record_subgoal_time_step=True)
+                    # dist: (b=1, max_lang_model_input_len, num_of_actions)
+                    dist = model_results['dist']
+                    # value: (b=1, max_lang_model_input_len)
+                    raw_value = model_results['value']
+                    # subgoal_indice_per_sample: list of lists
+                    # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                    # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                    subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                    # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                    input_ids_len = model_results['input_ids_len']
+
+
+
+                if self.argmax:
+                    raw_action = dist.probs.argmax(dim=-1)
+                else:
+                    # (b=1, max_lang_model_input_len)
+                    raw_action = dist.sample()
+                
+                if i == 0:
+                    # (b=1, ): the indice of the last token of the recent subgoal description
+                    action = raw_action[range(1), input_ids_len]
+                    value = raw_value[range(1), input_ids_len]
+                else:
+                    action = torch.cat([action, raw_action[range(1), input_ids_len]], dim=-1)
+                    value  = torch.cat([value, raw_value[range(1),   input_ids_len]], dim=-1)
+    
+            result = {'action': action, 'value': value}
+
+        else:
+            result = super().act_batch(many_obs)
+
+        return result
 
 class SubGoalModelAgent(ModelAgent):
     """A subgoal-models-based agent. This agent behaves using a list of models. Each model provides a policy to solve the corresponding subgoal"""

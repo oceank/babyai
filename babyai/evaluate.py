@@ -141,12 +141,13 @@ use_subgoal=False):
                 done = tuple(done)
             else:
                 many_obs, reward, done, _ = env.step(action)
+
             agent.analyze_feedback(reward, done)
             done = np.array(done)
             just_done = done & (~already_done)
             returns += reward * just_done
             cur_num_frames += 1
-            num_frames[just_done] = cur_num_frames
+            num_frames[just_done] = cur_num_frames # when using subgoals, num_frames refers to the number of subgoals
             already_done[done] = True
 
         logs["num_frames_per_episode"].extend(list(num_frames))
