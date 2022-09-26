@@ -574,7 +574,7 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         self.use_vlm = True
 
         # Use the Word Emebdding of the GPT2 model
-        self.tokenizer=tokenizer
+        #self.tokenizer=tokenizer
         self.desc_vocabulary_size = vlm.wte.num_embeddings
         self.desc_embedding_dim   = vlm.wte.embedding_dim
         self.embedding_size = vlm.wte.embedding_dim
@@ -752,11 +752,12 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     #   images: (batch, times, channel, height, width)
     #   texts : a list of text, len(texts)==batch_size
     # Output:
-    #   encoded_input: a transformers BatchEncoding object (a dict)
+    #   vlm_input: a dictionary of "encoded_input" and "input_ids_len"
+    #       encoded_input: a transformers BatchEncoding object (a dict)
     def prepare_vlm_input(self, images, batch_sentences, record_subgoal_time_step=False):
         batch_size = len(batch_sentences)
 
-        encoded_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step)
+        vlm_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step)
         
         images = images.to(self.device)
 
@@ -769,6 +770,6 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         image_embeds = self.image_conv(images)
         # convert to the shape : (batch_size, times, height*width, feature_dim)
         image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
-        encoded_input['image_embeds'] = image_embeds
+        vlm_input['encoded_input']['image_embeds'] = image_embeds
              
-        return encoded_input
+        return vlm_input

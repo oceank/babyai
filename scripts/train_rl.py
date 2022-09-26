@@ -94,6 +94,7 @@ for i in range(args.procs):
 goal = None
 subgoals = None
 train_agent = None
+skill_model_name_list = []
 if args.use_subgoal:
     assert args.skill_model_name_list is not None
     skill_model_name_list = args.skill_model_name_list.split(',')
