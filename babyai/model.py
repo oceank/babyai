@@ -651,11 +651,17 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     #   media_locations (bool)  :   (batch_size, max_lang_model_input_len)
     #   input_ids_len (int)     :   (batch_size, 1)
     #   input_ids_len_per_sample_per_seq: List[List[int]]
-    def create_text_tokens(self, batch_sentences:List[List[str]], record_subgoal_time_step=False) -> dict:
-        altered_batch_sentences = [
-            "".join(["<image>"+sentence+self.tokenizer.sep_token for sentence in sample])
-            for sample in batch_sentences
-        ]
+    def create_text_tokens(self, batch_sentences:List[List[str]], record_subgoal_time_step=False, use_subgoal_desc=False) -> dict:
+        if use_subgoal_desc:
+            altered_batch_sentences = [
+                sample[0]+self.tokenizer.sep_token +
+                "".join(["<image>"+sample[i]+self.tokenizer.sep_token for i in range(1, len(sample))]) for sample in batch_sentences
+            ]
+        else:
+            altered_batch_sentences = [
+                "".join(["<image>"+sentence+self.tokenizer.sep_token for sentence in sample])
+                for sample in batch_sentences
+            ]
         
         encoded_input = self.tokenizer(
             altered_batch_sentences,
@@ -677,9 +683,14 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
 
             if record_subgoal_time_step:
                 subgoal_indices = []
-                if len(media_start_locs) > 1:
-                    subgoal_indices = [media_start_locs[i]-1 for i in range(1, len(media_start_locs))]
-                last_valid_sep_idx=media_start_locs[-1]+3
+                if use_subgoal_desc:
+                    if len(media_start_locs) > 0:
+                        subgoal_indices = [media_start_locs[i]-1 for i in range(1, len(media_start_locs))]
+                    last_valid_sep_idx=0
+                else:
+                    if len(media_start_locs) > 1:
+                        subgoal_indices = [media_start_locs[i]-1 for i in range(1, len(media_start_locs))]
+                    last_valid_sep_idx=media_start_locs[-1]+3
                 # Find the index of the seperator token for the last text sequence in the current sample
                 while last_valid_sep_idx < num_tokens:
                     if encoded_input['input_ids'][i_sample][last_valid_sep_idx] == 50256:
@@ -706,16 +717,21 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     # obss: a list of obs object that is a dict of "image" and "mission"
     #       obs['image']    : visual observation from the environment
     #       obs['mission]   : a string
-    def forward(self, obss, record_subgoal_time_step=False):
+    def forward(self, obss, record_subgoal_time_step=False, use_subgoal_desc=False):
         images = self.image_preproc(obss, device=self.device)
         images = images.unsqueeze(dim=0)
-        batch_sentences = [[obs['mission'] for obs in obss]]
+        if use_subgoal_desc:
+            # mission description + the following subgoal descripitons
+            # the subgoal description at the last time step is empty
+            batch_sentences=[[obss[0]['mission']] + [obss[i]['subgoal'] for i in range(1, len(obss)-1)]]
+        else:
+            batch_sentences = [[obs['mission'] for obs in obss]]
         batch_size = len(batch_sentences) # it is 1 for now.
 
         # keys: input_ids, attention_mask, media_locations, input_ids_len
         #       *input_ids_len_per_sample_per_seq: List[List[int]]
         #       image_embeds
-        vlm_input = self.prepare_vlm_input(images, batch_sentences, record_subgoal_time_step)
+        vlm_input = self.prepare_vlm_input(images, batch_sentences, record_subgoal_time_step, use_subgoal_desc)
 
         vlm_output = self.vlm(**vlm_input['encoded_input'], return_dict=True, extract_feature=True)
         # embedding: (b, max_lang_model_input_len, gpt2_embedding_size)
@@ -754,10 +770,10 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     # Output:
     #   vlm_input: a dictionary of "encoded_input" and "input_ids_len"
     #       encoded_input: a transformers BatchEncoding object (a dict)
-    def prepare_vlm_input(self, images, batch_sentences, record_subgoal_time_step=False):
+    def prepare_vlm_input(self, images, batch_sentences, record_subgoal_time_step=False, use_subgoal_desc=False):
         batch_size = len(batch_sentences)
 
-        vlm_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step)
+        vlm_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step, use_subgoal_desc)
         
         images = images.to(self.device)
 

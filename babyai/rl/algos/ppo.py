@@ -182,12 +182,12 @@ class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
                  gae_lambda=0.95,
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5,
                  adam_eps=1e-5, clip_eps=0.2, epochs=4, preprocess_obss=None,
-                 reshape_reward=None, agent=None, num_episodes=None):
+                 reshape_reward=None, agent=None, num_episodes=None, use_subgoal_desc=False):
         num_episodes = num_episodes or 10
 
         super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                          value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
-                         agent=agent, num_episodes=num_episodes)
+                         agent=agent, num_episodes=num_episodes, use_subgoal_desc=use_subgoal_desc)
 
         self.clip_eps = clip_eps
         self.epochs = epochs

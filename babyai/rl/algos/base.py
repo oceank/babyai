@@ -357,7 +357,7 @@ class BaseAlgoFlamingoHRL(ABC):
 
     def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                  value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
-                 agent, num_episodes):
+                 agent, num_episodes, use_subgoal_desc):
         """
         Initializes a `BaseAlgo` instance.
 
@@ -411,6 +411,7 @@ class BaseAlgoFlamingoHRL(ABC):
         self.reshape_reward = reshape_reward
 
         self.num_episodes = num_episodes
+        self.use_subgoal_desc = use_subgoal_desc
 
         # Store helpers values
 
@@ -509,7 +510,7 @@ class BaseAlgoFlamingoHRL(ABC):
 
             self.obs = self.env.reset() # self.obs is a list of observations from multiple environments
             self.agent.reset_goal_and_subgoals(self.env.envs)
-
+     
             done = [False]
             episode_num_subgoals = 0
             self.log_episode_num_frames[ep_idx] = 0
@@ -521,7 +522,7 @@ class BaseAlgoFlamingoHRL(ABC):
 
                 with torch.no_grad():
                     # pass all observed up to now in the episode i
-                    model_results = self.acmodel(self.obss[ep_idx], record_subgoal_time_step=True)
+                    model_results = self.acmodel(self.obss[ep_idx], record_subgoal_time_step=True, use_subgoal_desc=self.use_subgoal_desc)
                     # dist: (b=1, max_lang_model_input_len, num_of_actions)
                     dist = model_results['dist']
                     # value: (b=1, max_lang_model_input_len)
@@ -538,6 +539,11 @@ class BaseAlgoFlamingoHRL(ABC):
                 # (b=1, ): the indice of the last token of the recent subgoal description
                 action = raw_action[range(num_envs), input_ids_len]
                 value = raw_value[range(num_envs), input_ids_len]
+
+                # Add the description of the selected subgoal
+                if self.use_subgoal_desc:
+                    for obs_, env_, subgoal_idx in zip(self.obs, self.env.envs, action):
+                        obs_['subgoal'] = env_.sub_goals[subgoal_idx]['desc']
 
                 obs, reward, done, subgoals_consumed_steps = self.agent.apply_skill_batch(
                     num_envs, self.obs, self.env, action.cpu().numpy())

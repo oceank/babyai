@@ -276,6 +276,8 @@ if args.use_subgoal:
         acmodel, obss_preprocessor, argmax=True,
         subgoals=subgoals, goal=goal, skill_library=skill_library)
 
+use_subgoal_desc = True
+
 # Define actor-critic algo
 
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
@@ -284,7 +286,7 @@ if args.algo == "ppo":
         algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                 args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
-                                reshape_reward, agent=train_agent, num_episodes=args.num_episodes)
+                                reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=use_subgoal_desc)
     else:
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
