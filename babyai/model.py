@@ -749,7 +749,8 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         #   dist.sample(): (b, max_lang_model_input_len)
         # value: (b, max_lang_model_input_len)
         x = self.actor(embedding)
-        dist = Categorical(logits=F.log_softmax(x, dim=-1))
+        logits=F.log_softmax(x, dim=-1)
+        dist = Categorical(logits)
 
         x = self.critic(embedding)
         value = x.squeeze(-1)
@@ -757,7 +758,7 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         # encoded_input['subgoal_indice_per_sample']: list of lists. The element indicates the time step of each subgoal.
         # batch_size (number of processes) = length of encoded_input['subgoal_indice_per_sample']
         # number of subgoals in each episode i = length of encoded_input['subgoal_indice_per_sample'][0][i]
-        result = {'dist': dist, 'value': value}
+        result = {'dist': dist, 'value': value, 'logits': logits}
         if record_subgoal_time_step:
             result['input_ids_len'] = vlm_input['input_ids_len']
             result['subgoal_indice_per_sample'] = vlm_input['subgoal_indice_per_sample']

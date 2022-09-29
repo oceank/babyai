@@ -630,3 +630,230 @@ class BaseAlgoFlamingoHRL(ABC):
     @abstractmethod
     def update_parameters(self):
         pass
+
+
+class BaseAlgoFlamingoHRLIL(ABC):
+    """The base class for RL algorithms."""
+
+    def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+                 value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
+                 agent, num_episodes, expert_model):
+        """
+        Initializes a `BaseAlgo` instance.
+
+        Parameters:
+        ----------
+        envs : list
+            a list of environments that will be run in parallel
+        acmodel : torch.Module
+            the model
+        num_frames_per_proc : int
+            the number of frames collected by every process for an update
+        discount : float
+            the discount for future rewards
+        lr : float
+            the learning rate for optimizers
+        gae_lambda : float
+            the lambda coefficient in the GAE formula
+            ([Schulman et al., 2015](https://arxiv.org/abs/1506.02438))
+        entropy_coef : float
+            the weight of the entropy cost in the final objective
+        value_loss_coef : float
+            the weight of the value loss in the final objective
+        max_grad_norm : float
+            gradient will be clipped to be at most this value
+        recurrence : int
+            the number of steps the gradient is propagated back in time
+        preprocess_obss : function
+            a function that takes observations returned by the environment
+            and converts them into the format that the model can handle
+        reshape_reward : function
+            a function that shapes the reward, takes an
+            (observation, action, reward, done) tuple as an input
+        aux_info : list
+            a list of strings corresponding to the name of the extra information
+            retrieved from the environment for supervised auxiliary losses
+
+        """
+        # Store parameters
+
+        self.env = ParallelEnv(envs)
+        self.acmodel = acmodel
+        self.acmodel.train()
+
+        self.discount = discount
+        self.lr = lr
+        self.gae_lambda = gae_lambda
+        self.entropy_coef = entropy_coef
+        self.value_loss_coef = value_loss_coef
+        self.max_grad_norm = max_grad_norm
+        self.preprocess_obss = preprocess_obss or default_preprocess_obss
+        self.reshape_reward = reshape_reward
+
+        self.num_episodes = num_episodes
+
+        self.expert_model = expert_model
+
+        # Store helpers values
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.num_procs = len(envs) # 1
+
+        # Initialize parameters for having the agent use subgoals 
+        self.agent = agent
+
+        # Initialize experience values
+        self.obs = self.env.reset()
+        self.agent.reset_goal_and_subgoals(self.env.envs)
+
+        self.obss = [None]*(self.num_episodes)
+        self.rewards = [None]*(self.num_episodes)
+        self.expert_actions = [None]*(self.num_episodes)
+        self.agent_logits = [None]*(self.num_episodes)
+
+        # Initialize log values
+
+        self.log_episode_return = torch.zeros(self.num_episodes, device=self.device)
+        self.log_episode_reshaped_return = torch.zeros(self.num_episodes, device=self.device)
+
+        self.log_episode_num_frames = torch.zeros(self.num_episodes, device=self.device, dtype=torch.int)
+        self.log_total_consumed_frames = 0
+        self.log_total_num_subgoals = 0
+        self.log_done_counter = 0
+        self.log_return = [0] * self.num_episodes
+        self.log_reshaped_return = [0] * self.num_episodes
+        self.log_num_frames = [0] * self.num_episodes
+        self.log_num_subgoals = [0] * self.num_episodes
+
+
+    def collect_experiences(self):
+        """Collects rollouts and computes advantages.
+
+        Runs several environments concurrently. The next actions are computed
+        in a batch mode for all environments at the same time. The rollouts
+        and advantages from all environments are concatenated together.
+
+        Returns
+        -------
+        exps : DictList
+            Contains actions, rewards, advantages etc as attributes.
+            Each attribute, e.g. `exps.reward` is a list with a length of
+            self.num_episode and each of its element is a list represents
+            the reward at a time step. Here, the time step corresponds to
+            the high-level policy in the HRL. That is, it is the time point
+            when the corresponding subgoal is done.
+            The full list of attributes is:
+                obs, action, value, reward, advantage, log_prob, returnnn.
+        logs : dict
+            Useful stats about the training process, including the average
+            reward, policy loss, value loss, etc.
+
+        """
+
+        num_envs = 1
+
+        self.log_total_consumed_frames = 0
+        self.log_total_num_subgoals = 0
+        
+        for ep_idx in range(self.num_episodes):
+            self.obss[ep_idx] = []
+            self.rewards[ep_idx] = []
+            self.expert_actions[ep_idx] = []
+            self.agent_logits[ep_idx] = []
+
+            self.obs = self.env.reset() # self.obs is a list of observations from multiple environments
+            self.agent.reset_goal_and_subgoals(self.env.envs)
+
+            done = [False]
+            episode_num_subgoals = 0
+            self.log_episode_num_frames[ep_idx] = 0
+            expert_memory = torch.zeros(num_envs, self.expert_model.memory_size, device=self.device)
+            while not done[0]:
+                episode_num_subgoals += 1
+
+                with torch.no_grad():
+                    expert_result = self.expert_model(self.obs[0], expert_memory)
+                    expert_memory = expert_result['memory']
+                    expert_dist = expert_result['dist']
+                
+                expert_action = expert_dist.probs.argmax(dim=-1)
+                self.expert_actions[ep_idx].append(expert_action)
+
+                # Currently only support one process. That is, self.obs only has one element, self.obs[0]
+                self.obss[ep_idx].append(self.obs[0])
+
+                with torch.no_grad():
+                    # pass all observed up to now in the episode i
+                    model_results = self.acmodel(self.obss[ep_idx], record_subgoal_time_step=True)
+                    # dist: (b=1, max_lang_model_input_len, num_of_actions)
+                    dist = model_results['dist']
+                    # value: (b=1, max_lang_model_input_len)
+                    raw_value = model_results['value']
+                    # logit: (b=1, max_lang_model_input_len, num_of_actions)
+                    raw_logits = model_results['logits']
+
+                    # subgoal_indice_per_sample: list of lists
+                    # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                    # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                    subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                    # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                    input_ids_len = model_results['input_ids_len']
+
+                # (b=1, max_lang_model_input_len)
+                raw_action = dist.sample()
+                # (b=1, ): the indice of the last token of the recent subgoal description
+                action = raw_action[range(num_envs), input_ids_len-1]
+                logits = raw_logits[range(num_envs), input_ids_len-1, :]
+
+                obs, reward, done, subgoals_consumed_steps = self.agent.apply_skill_batch(
+                    num_envs, self.obs, self.env, action.cpu().numpy())
+
+                self.log_episode_num_frames[ep_idx] += subgoals_consumed_steps[0]
+
+
+                # Update experiences values
+                self.obs = obs
+
+                self.agent_logits[ep_idx].append(logits)
+
+                if self.reshape_reward is not None:
+                    self.rewards[ep_idx].append(
+                        torch.tensor([
+                            self.reshape_reward(obs_, action_, reward_, done_)
+                            for obs_, action_, reward_, done_ in zip(obs, action, reward, done)
+                            ], device=self.device
+                        )
+                    )
+                else:
+                    self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
+
+
+            # Update log values
+            self.log_total_consumed_frames += self.log_episode_num_frames[ep_idx]
+            self.log_return[ep_idx] = reward[0]
+            self.log_reshaped_return[ep_idx] = self.rewards[ep_idx]
+            self.log_num_frames[ep_idx] = self.log_episode_num_frames[ep_idx]
+            self.log_num_subgoals[ep_idx] = episode_num_subgoals
+            self.log_total_num_subgoals += episode_num_subgoals
+
+
+        # Flatten the data correctly, making sure that
+        # each episode's data is a continuous chunk
+
+        exps = DictList()
+
+        exps.agent_logits = self.agent_logits
+        exps.expert_actions = self.expert_actions
+
+        # Log some values
+
+        log = {
+            "return_per_episode": self.log_return,
+            "reshaped_return_per_episode": [[x.item() for x in y] for y in self.log_reshaped_return],
+            "num_frames_per_episode": [x.item() for x in self.log_num_frames],
+            "num_frames": self.log_total_consumed_frames.item(),
+            "episodes_done": self.num_episodes,
+            "num_high_level_actions_per_episode": self.log_num_subgoals,
+            "num_high_level_actions": self.log_total_num_subgoals
+        }
+
+        return exps, log

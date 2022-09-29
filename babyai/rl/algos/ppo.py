@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 
 
-from babyai.rl.algos.base import BaseAlgo, BaseAlgoFlamingoHRL
+from babyai.rl.algos.base import BaseAlgo, BaseAlgoFlamingoHRL, BaseAlgoFlamingoHRLIL
 
 
 class PPOAlgo(BaseAlgo):
@@ -300,6 +300,103 @@ class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
                 log_values.append(batch_value)
                 log_policy_losses.append(batch_policy_loss)
                 log_value_losses.append(batch_value_loss)
+                log_grad_norms.append(grad_norm.item())
+                log_losses.append(batch_loss.item())
+
+        # Log some values
+
+        logs["entropy"] = numpy.mean(log_entropies)
+        logs["value"] = numpy.mean(log_values)
+        logs["policy_loss"] = numpy.mean(log_policy_losses)
+        logs["value_loss"] = numpy.mean(log_value_losses)
+        logs["grad_norm"] = numpy.mean(log_grad_norms)
+        logs["loss"] = numpy.mean(log_losses)
+
+        return logs
+
+
+class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
+    """The class for the Proximal Policy Optimization algorithm
+    ([Schulman et al., 2015](https://arxiv.org/abs/1707.06347))."""
+
+    def __init__(self, envs, acmodel, discount=0.99, lr=7e-4, beta1=0.9, beta2=0.999,
+                 gae_lambda=0.95,
+                 entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5,
+                 adam_eps=1e-5, clip_eps=0.2, epochs=4, preprocess_obss=None,
+                 reshape_reward=None, agent=None, num_episodes=None, expert_model=None):
+        num_episodes = num_episodes or 10
+
+        super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+                         value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
+                         agent=agent, num_episodes=num_episodes, expert_model=expert_model)
+
+        self.clip_eps = clip_eps
+        self.epochs = epochs
+
+        self.optimizer = torch.optim.Adam(self.acmodel.parameters(), lr, (beta1, beta2), eps=adam_eps)
+
+    def update_parameters(self):
+        # Collect experiences
+
+        exps, logs = self.collect_experiences()
+        '''
+        exps is a DictList with the following keys: 'agent_logits', 'expert_actions'. Each attribute, e.g.,
+        `exps.agent_logits` is a list with a length of self.num_episode and each of its element is a list
+        represents the model logits for the observation at a time step. Here, the time step corresponds to the
+        high-level policy in the HRL. That is, it is the time point when the corresponding subgoal is done.
+
+        '''
+        num_envs = 1 # num of processes
+        num_of_subgoals_per_episode = [len(actions) for actions in exps.action]
+
+        for _ in range(self.epochs):
+            # Initialize log values
+
+            log_entropies = []
+            log_values = []
+            log_policy_losses = []
+            log_value_losses = []
+
+            log_grad_norms = []
+            log_losses = []
+
+
+            # for each epoch, we create self.num_episodes batches. One episode maps to one batch.
+            episode_ids = numpy.arange(0, self.num_episodes)
+            episode_ids = numpy.random.permutation(episode_ids)
+            for ep_idx in episode_ids:
+
+                batch_entropy = 0
+                batch_value = 0
+                batch_policy_loss = 0
+                batch_value_loss = 0
+
+                batch_loss = 0
+
+                # Create an episode of experience
+                ep = exps[ep_idx]
+
+                agent_logits = torch.cat(ep.agent_logits, dim=0) 
+                expert_actions = torch.cat(ep.expert_actions, dim=0)
+                loss_fn = torch.nn.CrossEntropyLoss()
+                batch_loss = loss_fn(agent_logits, expert_actions)
+                batch_loss = batch_loss.mean()
+
+                # Update actor
+
+                self.optimizer.zero_grad()
+                batch_loss.backward()
+                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.acmodel.parameters() if p.grad is not None) ** 0.5
+                torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
+                self.optimizer.step()
+
+                # Update log values
+
+                log_entropies.append(batch_entropy)
+                log_values.append(batch_value)
+                log_policy_losses.append(batch_policy_loss)
+                log_value_losses.append(batch_value_loss)
+
                 log_grad_norms.append(grad_norm.item())
                 log_losses.append(batch_loss.item())
 

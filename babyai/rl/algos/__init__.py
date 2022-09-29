@@ -1,1 +1,1 @@
-from babyai.rl.algos.ppo import PPOAlgo, PPOAlgoFlamingoHRL
+from babyai.rl.algos.ppo import PPOAlgo, PPOAlgoFlamingoHRL, PPOAlgoFlamingoHRLIL
