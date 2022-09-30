@@ -75,6 +75,9 @@ parser.add_argument("--skill-model-name-list", type=str, default=None,
 
 parser.add_argument("--num-episodes", type=int, default=4,
                     help="number of episodes on procesess will run to collect experience before model update. used in HRL & VLM.")
+parser.add_argument("--use-subgoal-desc", action="store_true", default=False,
+                    help="use the descripiton of previous subgoals and the mission description at each time step")
+                    
 
 parser.add_argument("--has-expert", action="store_true", default=False,
                     help="use an expert to guide the agent")
@@ -281,8 +284,6 @@ if args.use_subgoal:
         acmodel, obss_preprocessor, argmax=True,
         subgoals=subgoals, goal=goal, skill_library=skill_library)
 
-use_subgoal_desc = True
-
 # Define actor-critic algo
 
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
@@ -290,16 +291,17 @@ if args.algo == "ppo":
     if args.use_subgoal and args.use_vlm:
         if args.has_expert:
             expert_model = utils.load_model(args.expert_model_name)
+            expert_obss_preprocessor = utils.ObssPreprocessor(args.expert_model_name, envs[0].observation_space, args.pretrained_model)
             algo = babyai.rl.PPOAlgoFlamingoHRLIL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
-                                    args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
+                                    args.optim_eps, args.clip_eps, args.ppo_epochs, expert_obss_preprocessor,
                                     reshape_reward, agent=train_agent, num_episodes=args.num_episodes,
                                     expert_model = expert_model)
-        else:
+        else: # ToDo: remove obss_preprocessor since it is not used
             algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
-                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=use_subgoal_desc)
+                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc)
     else:
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,

@@ -340,14 +340,13 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
 
         exps, logs = self.collect_experiences()
         '''
-        exps is a DictList with the following keys: 'agent_logits', 'expert_actions'. Each attribute, e.g.,
-        `exps.agent_logits` is a list with a length of self.num_episode and each of its element is a list
-        represents the model logits for the observation at a time step. Here, the time step corresponds to the
+        exps is a DictList with the following keys: 'obs', 'expert_actions'. Each attribute, e.g.,
+        `exps.expert_actions` is a list with a length of self.num_episode and each of its element is a list
+        represents the expert's action for the observation at a time step. Here, the time step corresponds to the
         high-level policy in the HRL. That is, it is the time point when the corresponding subgoal is done.
 
         '''
         num_envs = 1 # num of processes
-        num_of_subgoals_per_episode = [len(actions) for actions in exps.action]
 
         for _ in range(self.epochs):
             # Initialize log values
@@ -376,11 +375,21 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
                 # Create an episode of experience
                 ep = exps[ep_idx]
 
-                agent_logits = torch.cat(ep.agent_logits, dim=0) 
+                model_results = self.acmodel(ep.obs, record_subgoal_time_step=True)
+                # subgoal_indice_per_sample: list of lists
+                # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                input_ids_len = model_results['input_ids_len']
+
+                raw_logits = model_results['logits']
+                # currently support one process/one environment
+                agent_logits = raw_logits[range(num_envs), subgoal_indice_per_sample[0], :] 
                 expert_actions = torch.cat(ep.expert_actions, dim=0)
-                loss_fn = torch.nn.CrossEntropyLoss()
+
+                loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
                 batch_loss = loss_fn(agent_logits, expert_actions)
-                batch_loss = batch_loss.mean()
 
                 # Update actor
 

@@ -708,7 +708,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
         self.obss = [None]*(self.num_episodes)
         self.rewards = [None]*(self.num_episodes)
         self.expert_actions = [None]*(self.num_episodes)
-        self.agent_logits = [None]*(self.num_episodes)
+        #self.agent_logits = [None]*(self.num_episodes)
 
         # Initialize log values
 
@@ -758,7 +758,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
             self.obss[ep_idx] = []
             self.rewards[ep_idx] = []
             self.expert_actions[ep_idx] = []
-            self.agent_logits[ep_idx] = []
+            #self.agent_logits[ep_idx] = []
 
             self.obs = self.env.reset() # self.obs is a list of observations from multiple environments
             self.agent.reset_goal_and_subgoals(self.env.envs)
@@ -771,7 +771,8 @@ class BaseAlgoFlamingoHRLIL(ABC):
                 episode_num_subgoals += 1
 
                 with torch.no_grad():
-                    expert_result = self.expert_model(self.obs[0], expert_memory)
+                    preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
+                    expert_result = self.expert_model(preprocessed_obs, expert_memory)
                     expert_memory = expert_result['memory']
                     expert_dist = expert_result['dist']
                 
@@ -789,7 +790,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
                     # value: (b=1, max_lang_model_input_len)
                     raw_value = model_results['value']
                     # logit: (b=1, max_lang_model_input_len, num_of_actions)
-                    raw_logits = model_results['logits']
+                    #raw_logits = model_results['logits']
 
                     # subgoal_indice_per_sample: list of lists
                     # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
@@ -802,7 +803,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
                 raw_action = dist.sample()
                 # (b=1, ): the indice of the last token of the recent subgoal description
                 action = raw_action[range(num_envs), input_ids_len-1]
-                logits = raw_logits[range(num_envs), input_ids_len-1, :]
+                #logits = raw_logits[range(num_envs), input_ids_len-1, :]
 
                 obs, reward, done, subgoals_consumed_steps = self.agent.apply_skill_batch(
                     num_envs, self.obs, self.env, action.cpu().numpy())
@@ -813,7 +814,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
                 # Update experiences values
                 self.obs = obs
 
-                self.agent_logits[ep_idx].append(logits)
+                #self.agent_logits[ep_idx].append(logits)
 
                 if self.reshape_reward is not None:
                     self.rewards[ep_idx].append(
@@ -841,8 +842,9 @@ class BaseAlgoFlamingoHRLIL(ABC):
 
         exps = DictList()
 
-        exps.agent_logits = self.agent_logits
+        #exps.agent_logits = self.agent_logits
         exps.expert_actions = self.expert_actions
+        exps.obs = self.obss
 
         # Log some values
 
