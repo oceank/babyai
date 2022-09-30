@@ -750,7 +750,7 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         # value: (b, max_lang_model_input_len)
         x = self.actor(embedding)
         logits=F.log_softmax(x, dim=-1)
-        dist = Categorical(logits)
+        dist = Categorical(logits=logits)
 
         x = self.critic(embedding)
         value = x.squeeze(-1)
