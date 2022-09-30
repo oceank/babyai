@@ -571,7 +571,7 @@ class BaseAlgoFlamingoHRL(ABC):
                     self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
                 #self.log_probs[i] = dist.log_prob(action)
                 raw_log_prob = dist.log_prob(raw_action)
-                self.log_probs[ep_idx].append(raw_log_prob[range(num_envs), input_ids_len])
+                self.log_probs[ep_idx].append(raw_log_prob[range(num_envs), input_ids_len-1])
 
                 self.advantages[ep_idx].append(0) # initialize the advantages for the episode, ep_idx
 
