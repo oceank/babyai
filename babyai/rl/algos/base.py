@@ -537,8 +537,8 @@ class BaseAlgoFlamingoHRL(ABC):
                 # (b=1, max_lang_model_input_len)
                 raw_action = dist.sample()
                 # (b=1, ): the indice of the last token of the recent subgoal description
-                action = raw_action[range(num_envs), input_ids_len]
-                value = raw_value[range(num_envs), input_ids_len]
+                action = raw_action[range(num_envs), input_ids_len-1]
+                value = raw_value[range(num_envs), input_ids_len-1]
 
                 # Add the description of the selected subgoal
                 if self.use_subgoal_desc:
