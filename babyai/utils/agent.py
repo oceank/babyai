@@ -376,7 +376,7 @@ class SkillModelAgent(ModelAgent):
                 if done[i]:
                     self.memory[i] = []
         else:
-            super().act_batch(reward, done)
+            super().analyze_feedback(reward, done)
 
     def act_batch(self, many_obs):
 
