@@ -84,6 +84,9 @@ parser.add_argument("--has-expert", action="store_true", default=False,
 parser.add_argument("--expert-model-name", type=str, default="",
                     help="the name of the expert model")
 
+parser.add_argument("--use-FiLM", action="store_true", default=False,
+                    help="use FiLM layers to fuse the instruction embedding and the visual embedding")
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
@@ -127,8 +130,9 @@ if args.use_subgoal:
 suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 instr = args.instr_arch if args.instr_arch else "noinstr"
 mem = "mem" if not args.no_mem else "nomem"
-vlm_info="vlm" if args.use_vlm else "novlm"
+vlm_info = "vlm" if args.use_vlm else "novlm"
 subgoal_info = "subgoal" if args.use_subgoal else "nosubgoal"
+film_info = "film" if args.use_FiLM else "nofilm" 
 
 model_name_parts = {
     'env': args.env,
@@ -141,8 +145,9 @@ model_name_parts = {
     'coef': '',
     'vlm' : vlm_info,
     'subgoal': subgoal_info,
+    'film': film_info,
     'suffix': suffix}
-default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{vlm}_{subgoal}_{suffix}".format(**model_name_parts)
+default_model_name = "{env}_{algo}_{arch}_{instr}_{mem}_seed{seed}{info}{coef}_{vlm}_{subgoal}_{film}_{suffix}".format(**model_name_parts)
 if args.pretrained_model:
     default_model_name = args.pretrained_model + '_pretrained_' + default_model_name
 args.model = args.model.format(**model_name_parts) if args.model else default_model_name
@@ -221,15 +226,12 @@ if args.use_vlm:
     )
 
 
-solving_high_level_task = True
-
-if solving_high_level_task:
+if args.use_subgoal:
     # high-level task: unlock a door in one room
     # action 0: pickup a key that matches the door
     # action 1: open the door
     num_of_subgoals = len(skill_model_name_list)
 
-if solving_high_level_task:
     # when solving a high-level task
     num_of_actions = num_of_subgoals
 else:
@@ -269,7 +271,8 @@ if acmodel is None:
             max_history_window_vlm=args.max_history_window_vlm,
             top_k=args.top_k,
             top_p=args.top_p,
-            sample_next_token=args.sample_next_token
+            sample_next_token=args.sample_next_token,
+            use_FiLM = args.use_FiLM
         )
 
 obss_preprocessor.vocab.save()

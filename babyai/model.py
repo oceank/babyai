@@ -72,7 +72,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         arch="bow_endpool_res", aux_info=None,
         use_vlm=False, vlm=None, tokenizer=None,
         max_desc_len=0, max_lang_model_input_len=0, max_history_window_vlm=0,
-        top_k=50, top_p=0.95, sample_next_token=True):
+        top_k=50, top_p=0.95, sample_next_token=True, use_FiLM=True):
 
         super().__init__()
 
@@ -118,6 +118,8 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
 
         self.obs_space = obs_space
 
+        self.use_FiLM = use_FiLM
+
         for part in self.arch.split('_'):
             if part not in ['original', 'bow', 'pixels', 'endpool', 'res']:
                 raise ValueError("Incorrect architecture name: {}".format(self.arch))
@@ -140,6 +142,7 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
             nn.ReLU(),
             *([] if endpool else [nn.MaxPool2d(kernel_size=(2, 2), stride=2)])
         ])
+
         self.film_pool = nn.MaxPool2d(kernel_size=(7, 7) if endpool else (2, 2), stride=2)
 
         # Define instruction embedding
@@ -170,20 +173,21 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
             if self.lang_model == 'attgru':
                 self.memory2key = nn.Linear(self.memory_size, self.final_instr_dim)
 
-            num_module = 2
-            self.controllers = []
-            for ni in range(num_module):
-                mod = FiLM(
-                    in_features=self.final_instr_dim,
-                    out_features=128 if ni < num_module-1 else self.image_dim,
-                    in_channels=128, imm_channels=128)
-                self.controllers.append(mod)
-                self.add_module('FiLM_' + str(ni), mod)
+            if self.use_FiLM:
+                num_module = 2
+                self.controllers = []
+                for ni in range(num_module):
+                    mod = FiLM(
+                        in_features=self.final_instr_dim,
+                        out_features=128 if ni < num_module-1 else self.image_dim,
+                        in_channels=128, imm_channels=128)
+                    self.controllers.append(mod)
+                    self.add_module('FiLM_' + str(ni), mod)
 
         # Define memory and resize image embedding
         self.embedding_size = self.image_dim
         if self.use_memory:
-            self.memory_rnn = nn.LSTMCell(self.image_dim, self.memory_dim)
+            self.memory_rnn = nn.LSTMCell(self.memory_dim, self.memory_dim)
             self.embedding_size = self.semi_memory_size
 
         # Define actor's model
@@ -291,15 +295,23 @@ class ACModel(nn.Module, babyai.rl.RecurrentACModel):
         if 'pixel' in self.arch:
             x /= 256.0
         x = self.image_conv(x)
-        if self.use_instr:
-            for controller in self.controllers:
-                out = controller(x, instr_embedding)
-                if self.res:
-                    out = out + x
-                x = out
-        x = F.relu(self.film_pool(x))
-        x = x.reshape(x.shape[0], -1)
 
+        if self.use_FiLM:
+            if self.use_instr:
+                for controller in self.controllers:
+                    out = controller(x, instr_embedding)
+                    if self.res:
+                        out = out + x
+                    x = out
+            x = F.relu(self.film_pool(x))
+            x = x.reshape(x.shape[0], -1)
+        else:
+            # convert visual embed from (b, 128, 7, 7) to (b, 128)
+            x = F.relu(self.film_pool(x))
+            x = x.reshape(x.shape[0], -1)
+            x = torch.cat([x, instr_embedding], dim=-1)
+
+        # LSTM
         if self.use_memory:
             hidden = (memory[:, :self.semi_memory_size], memory[:, self.semi_memory_size:])
             hidden = self.memory_rnn(x, hidden)
