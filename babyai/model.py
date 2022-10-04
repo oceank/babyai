@@ -580,12 +580,15 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         vlm=None, tokenizer=None,
         max_desc_len=0, max_lang_model_input_len=0, max_history_window_vlm=0,
         top_k=50, top_p=0.95, sample_next_token=True,
-        use_pixel=False):
+        use_pixel=False, use_FiLM=False, cat_img_instr=False, only_lang_part=False):
 
         super().__init__()
 
         self.use_vlm = True
         self.use_pixel = use_pixel
+        self.use_FiLM=use_FiLM
+        self.cat_img_instr=cat_img_instr
+        self.only_lang_part=only_lang_part
 
         # Use the Word Emebdding of the GPT2 model
         #self.tokenizer=tokenizer
@@ -643,6 +646,17 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
             nn.Linear(64, 1)
         )
 
+        if self.use_FiLM:
+            num_module = 2
+            self.controllers = []
+            for ni in range(num_module):
+                mod = FiLM(
+                    in_features=self.embedding_size,
+                    out_features=128 if ni < num_module-1 else self.embedding_size,
+                    in_channels=128, imm_channels=128)
+                self.controllers.append(mod)
+                self.add_module('FiLM_' + str(ni), mod)
+
         # Initialize parameters correctly
         self.apply(initialize_parameters)
 
@@ -667,10 +681,19 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     #   input_ids_len_per_sample_per_seq: List[List[int]]
     def create_text_tokens(self, batch_sentences:List[List[str]], record_subgoal_time_step=False, use_subgoal_desc=False) -> dict:
         if use_subgoal_desc:
-            altered_batch_sentences = [
-                sample[0]+self.tokenizer.sep_token +
-                "".join(["<image>"+sample[i]+self.tokenizer.sep_token for i in range(1, len(sample))]) for sample in batch_sentences
-            ]
+            if self.use_FiLM:
+                altered_batch_sentences = [
+                    "".join(["<image>"+sample[i]+self.tokenizer.sep_token for i in range(0, len(sample)-1)]) for sample in batch_sentences +
+                    "<image>"
+                ]
+            elif self.cat_img_instr:
+                pass
+            else:
+                altered_batch_sentences = [
+                    sample[0]+self.tokenizer.sep_token +
+                    "".join(["<image>"+sample[i]+self.tokenizer.sep_token for i in range(1, len(sample))]) for sample in batch_sentences +
+                    "<image>"
+                ]
         else:
             altered_batch_sentences = [
                 "".join(["<image>"+sentence+self.tokenizer.sep_token for sentence in sample])
@@ -734,10 +757,15 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     def forward(self, obss, record_subgoal_time_step=False, use_subgoal_desc=False):
         images = self.image_preproc(obss, device=self.device)
         images = images.unsqueeze(dim=0)
+        instr_for_FiLM=None
         if use_subgoal_desc:
-            # mission description + the following subgoal descripitons
-            # the subgoal description at the last time step is empty
-            batch_sentences=[[obss[0]['mission']] + [obss[i]['subgoal'] for i in range(1, len(obss)-1)]]
+            if self.use_FiLM:
+                instr_for_FiLM=[obs['mission'] for obs in obss]
+                batch_sentences=[[obss[i]['subgoal'] for i in range(0, len(obss))]]
+            else:
+                # mission description + the following subgoal descripitons
+                # the subgoal description at the last time step is empty
+                batch_sentences=[[obss[0]['mission']] + [obss[i]['subgoal'] for i in range(1, len(obss)-1)]]
         else:
             batch_sentences = [[obs['mission'] for obs in obss]]
         batch_size = len(batch_sentences) # it is 1 for now.
@@ -745,7 +773,7 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         # keys: input_ids, attention_mask, media_locations, input_ids_len
         #       *input_ids_len_per_sample_per_seq: List[List[int]]
         #       image_embeds
-        vlm_input = self.prepare_vlm_input(images, batch_sentences, record_subgoal_time_step, use_subgoal_desc)
+        vlm_input = self.prepare_vlm_input(images, batch_sentences, record_subgoal_time_step, use_subgoal_desc, instr_for_FiLM)
 
         vlm_output = self.vlm(**vlm_input['encoded_input'], return_dict=True, extract_feature=True)
         # embedding: (b, max_lang_model_input_len, gpt2_embedding_size)
@@ -785,7 +813,14 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
     # Output:
     #   vlm_input: a dictionary of "encoded_input" and "input_ids_len"
     #       encoded_input: a transformers BatchEncoding object (a dict)
-    def prepare_vlm_input(self, images, batch_sentences, record_subgoal_time_step=False, use_subgoal_desc=False):
+    def prepare_vlm_input(
+        self,
+        images,
+        batch_sentences,
+        record_subgoal_time_step=False,
+        use_subgoal_desc=False,
+        instr_for_FiLM=None):
+
         batch_size = len(batch_sentences)
 
         vlm_input = self.create_text_tokens(batch_sentences, record_subgoal_time_step, use_subgoal_desc)
@@ -800,9 +835,35 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
 
             # images shape: (batch_size*times, channel, height, width)
             # image_embedding shape: (batch_size*times, featture_dim, height, width)
+            # times = 1.
             image_embeds = self.image_conv(images)
+
+            if self.use_FiLM:
+                instr_encoded = self.tokenizer(
+                    instr_for_FiLM,
+                    max_length=self.max_lang_model_input_len,
+                    padding="max_length",
+                    truncation=True,
+                    return_tensors="pt")
+                instr_embedding = self.vlm.wte(instr_encoded['input_ids'])
+                lengths = instr_encoded['attention_mask'].sum(dim=1)
+                # the instr embedding locates at the location of the last non-masked token
+                instr_embedding = instr_embedding[range(len(lengths)), lengths-1, :]
+
+                for controller in self.controllers:
+                    out = controller(x, instr_embedding)
+                    out = out + x
+                    x = out
+            elif self.cat_img_instr:
+                pass
+                # convert visual embed from (b, 128, 7, 7) to (b, 128)
+                #x = F.relu(self.film_pool(x))
+                #x = x.reshape(x.shape[0], -1)
+                #x = torch.cat([x, instr_embedding], dim=-1)
+
             # convert to the shape : (batch_size, times, height*width, feature_dim)
             image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
+
             vlm_input['encoded_input']['image_embeds'] = image_embeds
              
         return vlm_input

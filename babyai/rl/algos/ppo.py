@@ -235,7 +235,7 @@ class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
                 num_of_subgoals = num_of_subgoals_per_episode[ep_idx]
                 # Create an episode of experience
                 ep = exps[ep_idx]
-                model_results = self.acmodel(ep.obs, record_subgoal_time_step=True)
+                model_results = self.acmodel(ep.obs, record_subgoal_time_step=True, use_subgoal_desc=self.use_subgoal_desc)
                 dist = model_results['dist']
                 raw_value = model_results['value']
                 # subgoal_indice_per_sample: list of lists

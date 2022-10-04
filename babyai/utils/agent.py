@@ -115,7 +115,7 @@ class SkillModelAgent(ModelAgent):
     #           information and BabyAI language
     # Which skill to use at each time-step of solving the (high-level) goal
 
-    def __init__(self, model_or_name, obss_preprocessor, argmax, subgoals, goal, skill_library, use_vlm=False):
+    def __init__(self, model_or_name, obss_preprocessor, argmax, subgoals, goal, skill_library, use_vlm=False, use_subgoal_desc=False):
         if obss_preprocessor is None:
             assert isinstance(model_or_name, str)
             obss_preprocessor = utils.ObssPreprocessor(model_or_name)
@@ -131,6 +131,7 @@ class SkillModelAgent(ModelAgent):
         self.memory = None
 
         self.use_vlm = use_vlm
+        self.use_subgoal_desc = use_subgoal_desc
 
         # Currently only support training and testing with one environment instance,
         # but not multiple environment instances
@@ -394,7 +395,7 @@ class SkillModelAgent(ModelAgent):
                 obss_to_now = self.memory[i]
                 with torch.no_grad():
                     # pass all observed up to now in the episode i
-                    model_results = self.model(obss_to_now, record_subgoal_time_step=True)
+                    model_results = self.model(obss_to_now, record_subgoal_time_step=True, use_subgoal_desc=self.use_subgoal_desc)
                     # dist: (b=1, max_lang_model_input_len, num_of_actions)
                     dist = model_results['dist']
                     # value: (b=1, max_lang_model_input_len)

@@ -259,7 +259,8 @@ if acmodel is None:
             top_k=args.top_k,
             top_p=args.top_p,
             sample_next_token=args.sample_next_token,
-            use_pixel = args.use_pixel
+            use_pixel = args.use_pixel,
+            use_FiLM=args.use_FiLM, cat_img_instr=False, only_lang_part=False
         )
     else:
         acmodel = ACModel(
@@ -289,7 +290,8 @@ if torch.cuda.is_available():
 if args.use_subgoal:
     train_agent = SkillModelAgent(
         acmodel, obss_preprocessor, argmax=True,
-        subgoals=subgoals, goal=goal, skill_library=skill_library)
+        subgoals=subgoals, goal=goal, skill_library=skill_library,
+        use_vlm=args.use_vlm, use_subgoal_desc=args.use_subgoal_desc)
 
 # Define actor-critic algo
 
@@ -305,10 +307,12 @@ if args.algo == "ppo":
                                     reshape_reward, agent=train_agent, num_episodes=args.num_episodes,
                                     expert_model = expert_model)
         else: # ToDo: remove obss_preprocessor since it is not used
+            # Temporary
+            #use_FiLM=False, cat_img_instr=False, only_lang_part=False
             algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
-                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc)
+                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc,)
     else:
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
@@ -458,7 +462,7 @@ while status['num_frames'] < args.frames:
         if args.use_subgoal:
             agent = SkillModelAgent(
                 args.model, obss_preprocessor, argmax=True,
-                subgoals=None, goal=None, skill_library=skill_library, use_vlm=args.use_vlm)
+                subgoals=None, goal=None, skill_library=skill_library, use_vlm=args.use_vlm, use_subgoal_desc=args.use_subgoal_desc)
         else:
             agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
 
