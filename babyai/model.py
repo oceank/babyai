@@ -579,11 +579,13 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         arch="bow_endpool_res",
         vlm=None, tokenizer=None,
         max_desc_len=0, max_lang_model_input_len=0, max_history_window_vlm=0,
-        top_k=50, top_p=0.95, sample_next_token=True):
+        top_k=50, top_p=0.95, sample_next_token=True,
+        use_pixel=False):
 
         super().__init__()
 
         self.use_vlm = True
+        self.use_pixel = use_pixel
 
         # Use the Word Emebdding of the GPT2 model
         #self.tokenizer=tokenizer
@@ -790,15 +792,17 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         
         images = images.to(self.device)
 
-        images = rearrange(images, 'b t h w c -> (b t) c h w')
+        if self.use_pixel:
+            images = rearrange(images, 'b t h w c -> b t c h w')
+            vlm_input['encoded_input']['images'] = images
+        else:
+            images = rearrange(images, 'b t h w c -> (b t) c h w')
 
-        # images shape: (batch_size*times, channel, height, width)
-        # image_embedding shape: (batch_size*times, featture_dim, height, width)
-        if 'pixel' in self.arch:
-            images /= 256.0
-        image_embeds = self.image_conv(images)
-        # convert to the shape : (batch_size, times, height*width, feature_dim)
-        image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
-        vlm_input['encoded_input']['image_embeds'] = image_embeds
+            # images shape: (batch_size*times, channel, height, width)
+            # image_embedding shape: (batch_size*times, featture_dim, height, width)
+            image_embeds = self.image_conv(images)
+            # convert to the shape : (batch_size, times, height*width, feature_dim)
+            image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
+            vlm_input['encoded_input']['image_embeds'] = image_embeds
              
         return vlm_input

@@ -87,13 +87,16 @@ parser.add_argument("--expert-model-name", type=str, default="",
 parser.add_argument("--use-FiLM", action="store_true", default=False,
                     help="use FiLM layers to fuse the instruction embedding and the visual embedding")
 
+parser.add_argument("--use-pixel", action="store_true", default=False,
+                    help="the input visual observation to the acmodel is in RGB pixel.")
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
 
 # Generate environments
 envs = []
-use_pixel = 'pixel' in args.arch
+use_pixel = args.use_pixel
 for i in range(args.procs):
     env = gym.make(args.env)
     if use_pixel:
@@ -194,8 +197,8 @@ if args.use_vlm:
     # here we use the ViT from the vit-pytorch library
     print(f"[Setup] Create a visual encoder using ViT")
     vit = ViT(
-        image_size = 256,
-        patch_size = 32,
+        image_size = 56, #256,
+        patch_size = 7, #32,
         num_classes = 1000,
         dim = dim_img_embeds,
         depth = 6,
@@ -255,7 +258,8 @@ if acmodel is None:
             max_history_window_vlm=args.max_history_window_vlm,
             top_k=args.top_k,
             top_p=args.top_p,
-            sample_next_token=args.sample_next_token
+            sample_next_token=args.sample_next_token,
+            use_pixel = args.use_pixel
         )
     else:
         acmodel = ACModel(
