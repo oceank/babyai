@@ -75,6 +75,10 @@ parser.add_argument("--skill-model-name-list", type=str, default=None,
 
 parser.add_argument("--num-episodes", type=int, default=4,
                     help="number of episodes on procesess will run to collect experience before model update. used in HRL & VLM.")
+parser.add_argument("--num-episodes-per-batch", type=int, default=4,
+                    help="number of episodes in each batch that is used for one update of the model. used in HRL & VLM.")
+
+
 parser.add_argument("--use-subgoal-desc", action="store_true", default=False,
                     help="use the descripiton of previous subgoals and the mission description at each time step")
                     
@@ -312,7 +316,8 @@ if args.algo == "ppo":
             algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
-                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc,)
+                                    reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc,
+                                    num_episodes_per_batch=args.num_episodes_per_batch)
     else:
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,

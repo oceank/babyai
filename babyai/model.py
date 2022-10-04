@@ -611,6 +611,8 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         self.arch = arch
         self.obs_space = obs_space
 
+        self.use_FiLLM = use_FiLM
+
         for part in self.arch.split('_'):
             if part not in ['original', 'bow', 'pixels', 'endpool', 'res']:
                 raise ValueError("Incorrect architecture name: {}".format(self.arch))
