@@ -632,8 +632,6 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
             nn.ReLU(),
         ])
 
-        #self.fc = nn.Linear(self.max_lang_model_input_len*self.embedding_size, self.embedding_size)
-
         # Define actor's model
         self.actor = nn.Sequential(
             nn.Linear(self.embedding_size, 64),

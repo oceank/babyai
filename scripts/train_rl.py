@@ -220,15 +220,16 @@ if args.use_vlm:
         dim = dim_lang_embeds,       # dimensions of the embedding
         depth = depth,               # depth of the language model
         # variables below are for Flamingo trainable modules
-        heads = 8,                   # attention heads
-        ff_mult=4,                   # 
-        dim_head = 64,               # dimension per attention head
+        heads = 8,                   # attention heads. 8, 4
+        ff_mult=4,                   # 4, 2
+        dim_head = 64,               # dimension per attention head. 64, 32
         img_encoder = vit,           # plugin your image encoder (this can be optional if you pass in the image embeddings separately, but probably want to train end to end given the perceiver resampler)
         media_token_id = 3,          # the token id representing the [media] or [image]
         cross_attn_every = 3,        # how often to cross attend
-        perceiver_num_latents = 64,  # perceiver number of latents, should be smaller than the sequence length of the image tokens
+        perceiver_num_latents = 64,  # perceiver number of latents. 64, 32
+                                     # It should be smaller than the sequence length of the image tokens
         perceiver_depth = 2,         # perceiver resampler depth
-        perceiver_num_time_embeds = args.max_history_window_vlm,#16,
+        perceiver_num_time_embeds = args.max_history_window_vlm,#16, 8
         only_attend_immediate_media=True
     )
 
