@@ -708,6 +708,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
         self.obss = [None]*(self.num_episodes)
         self.rewards = [None]*(self.num_episodes)
         self.expert_actions = [None]*(self.num_episodes)
+        self.expert_values  = [None]*(self.num_episodes)
         #self.agent_logits = [None]*(self.num_episodes)
 
         # Initialize log values
@@ -758,6 +759,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
             self.obss[ep_idx] = []
             self.rewards[ep_idx] = []
             self.expert_actions[ep_idx] = []
+            self.expert_values[ep_idx] = []
             #self.agent_logits[ep_idx] = []
 
             self.obs = self.env.reset() # self.obs is a list of observations from multiple environments
@@ -775,9 +777,11 @@ class BaseAlgoFlamingoHRLIL(ABC):
                     expert_result = self.expert_model(preprocessed_obs, expert_memory)
                     expert_memory = expert_result['memory']
                     expert_dist = expert_result['dist']
+                    expert_value = expert_result['value']
                 
                 expert_action = expert_dist.probs.argmax(dim=-1)
                 self.expert_actions[ep_idx].append(expert_action)
+                self.expert_values[ep_idx].append(expert_value)
 
                 # Currently only support one process. That is, self.obs only has one element, self.obs[0]
                 self.obss[ep_idx].append(self.obs[0])
@@ -844,6 +848,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
 
         #exps.agent_logits = self.agent_logits
         exps.expert_actions = self.expert_actions
+        exps.expert_values = self.expert_values
         exps.obs = self.obss
 
         # Log some values

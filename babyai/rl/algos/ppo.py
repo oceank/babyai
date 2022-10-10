@@ -392,12 +392,18 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
                 input_ids_len = model_results['input_ids_len']
 
                 raw_logits = model_results['logits']
+                raw_values = model_results['value']
+
                 # currently support one process/one environment
+                agent_values = raw_values[range(num_envs), subgoal_indice_per_sample[0]]
                 agent_logits = raw_logits[range(num_envs), subgoal_indice_per_sample[0], :] 
                 expert_actions = torch.cat(ep.expert_actions, dim=0)
+                expert_values = torch.cat(ep.expert_values, dim=0)
 
                 loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
-                batch_loss = loss_fn(agent_logits, expert_actions)
+                policy_loss = loss_fn(agent_logits, expert_actions)
+                value_loss = (expert_values - agent_values).pow(2).mean()
+                batch_loss = policy_loss + self.value_loss_coef*value_loss
 
                 # Update actor
 
