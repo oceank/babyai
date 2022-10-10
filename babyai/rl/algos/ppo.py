@@ -391,10 +391,12 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
                 # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
                 input_ids_len = model_results['input_ids_len']
 
+                raw_entropy = model_results['dist'].entropy()
                 raw_logits = model_results['logits']
                 raw_values = model_results['value']
 
                 # currently support one process/one environment
+                agent_entropy = raw_entropy[range(num_envs), subgoal_indice_per_sample[0]]
                 agent_values = raw_values[range(num_envs), subgoal_indice_per_sample[0]]
                 agent_logits = raw_logits[range(num_envs), subgoal_indice_per_sample[0], :] 
                 expert_actions = torch.cat(ep.expert_actions, dim=0)
@@ -403,10 +405,14 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
                 loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
                 policy_loss = loss_fn(agent_logits, expert_actions)
                 value_loss = (expert_values - agent_values).pow(2).mean()
+                entropy = agent_entropy.mean()
+                value = agent_values.mean()
 
                 batch_loss = policy_loss + self.value_loss_coef*value_loss
                 batch_policy_loss = policy_loss
                 batch_value_loss = value_loss
+                batch_entropy = entropy
+                batch_value = value
 
                 # Update actor
 
@@ -418,10 +424,10 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
 
                 # Update log values
 
-                log_entropies.append(batch_entropy)
-                log_values.append(batch_value)
-                log_policy_losses.append(batch_policy_loss)
-                log_value_losses.append(batch_value_loss)
+                log_entropies.append(batch_entropy.item())
+                log_values.append(batch_value.item())
+                log_policy_losses.append(batch_policy_loss.item())
+                log_value_losses.append(batch_value_loss.item())
 
                 log_grad_norms.append(grad_norm.item())
                 log_losses.append(batch_loss.item())
