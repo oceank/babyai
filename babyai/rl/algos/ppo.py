@@ -403,7 +403,10 @@ class PPOAlgoFlamingoHRLIL(BaseAlgoFlamingoHRLIL):
                 loss_fn = torch.nn.CrossEntropyLoss(reduction='mean')
                 policy_loss = loss_fn(agent_logits, expert_actions)
                 value_loss = (expert_values - agent_values).pow(2).mean()
+
                 batch_loss = policy_loss + self.value_loss_coef*value_loss
+                batch_policy_loss = policy_loss
+                batch_value_loss = value_loss
 
                 # Update actor
 
