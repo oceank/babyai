@@ -357,7 +357,7 @@ class BaseAlgoFlamingoHRL(ABC):
 
     def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                  value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
-                 agent, num_episodes, use_subgoal_desc):
+                 agent, num_episodes, use_subgoal_desc, use_FiLM):
         """
         Initializes a `BaseAlgo` instance.
 
@@ -412,6 +412,7 @@ class BaseAlgoFlamingoHRL(ABC):
 
         self.num_episodes = num_episodes
         self.use_subgoal_desc = use_subgoal_desc
+        self.use_FiLM=use_FiLM
 
         # Store helpers values
 
@@ -510,6 +511,9 @@ class BaseAlgoFlamingoHRL(ABC):
 
             self.obs = self.env.reset() # self.obs is a list of observations from multiple environments
             self.agent.reset_goal_and_subgoals(self.env.envs)
+
+            if self.use_FiLM:
+                memory = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
      
             done = [False]
             episode_num_subgoals = 0
@@ -520,25 +524,41 @@ class BaseAlgoFlamingoHRL(ABC):
                 # Currently only support one process. That is, self.obs only has one element, self.obs[0]
                 self.obss[ep_idx].append(self.obs[0])
 
-                with torch.no_grad():
-                    # pass all observed up to now in the episode i
-                    model_results = self.acmodel(self.obss[ep_idx], record_subgoal_time_step=True, use_subgoal_desc=self.use_subgoal_desc)
-                    # dist: (b=1, max_lang_model_input_len, num_of_actions)
-                    dist = model_results['dist']
-                    # value: (b=1, max_lang_model_input_len)
-                    raw_value = model_results['value']
-                    # subgoal_indice_per_sample: list of lists
-                    # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
-                    # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
-                    subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
-                    # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
-                    input_ids_len = model_results['input_ids_len']
+                if self.use_FiLM:
+                    preprocessed_obs = self.preprocess_obss(self.obs, device=self.device)
 
-                # (b=1, max_lang_model_input_len)
-                raw_action = dist.sample()
-                # (b=1, ): the indice of the last token of the recent subgoal description
-                action = raw_action[range(num_envs), input_ids_len-1]
-                value = raw_value[range(num_envs), input_ids_len-1]
+                    with torch.no_grad():
+                        model_results = self.acmodel(preprocessed_obs, memory)
+                        dist = model_results['dist']
+                        value = model_results['value']
+                        memory = model_results['memory']
+                        extra_predictions = model_results['extra_predictions']
+
+                    action = dist.sample()
+                    log_probs = dist.log_prob(action)
+                else: # use vlm, Flamingo
+                    with torch.no_grad():
+                        # pass all observed up to now in the episode i
+                        model_results = self.acmodel(self.obss[ep_idx], record_subgoal_time_step=True, use_subgoal_desc=self.use_subgoal_desc)
+                        # dist: (b=1, max_lang_model_input_len, num_of_actions)
+                        dist = model_results['dist']
+                        # value: (b=1, max_lang_model_input_len)
+                        raw_value = model_results['value']
+                        # subgoal_indice_per_sample: list of lists
+                        # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                        # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                        subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                        # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                        input_ids_len = model_results['input_ids_len']
+
+                    # (b=1, max_lang_model_input_len)
+                    raw_action = dist.sample()
+                    raw_log_prob = dist.log_prob(raw_action)
+                    log_probs = raw_log_prob[range(num_envs), input_ids_len-1]
+
+                    # (b=1, ): the indice of the last token of the recent subgoal description
+                    action = raw_action[range(num_envs), input_ids_len-1]
+                    value = raw_value[range(num_envs), input_ids_len-1]
 
                 # Add the description of the selected subgoal
                 if self.use_subgoal_desc:
@@ -550,13 +570,10 @@ class BaseAlgoFlamingoHRL(ABC):
 
                 self.log_episode_num_frames[ep_idx] += subgoals_consumed_steps[0]
 
-
                 # Update experiences values
                 self.obs = obs
 
-                #self.masks[i] = self.mask
-                #self.mask = 1 - torch.tensor(done, device=self.device, dtype=torch.float)
-
+                self.log_probs[ep_idx].append(log_probs)
                 self.actions[ep_idx].append(action)
                 self.values[ep_idx].append(value)
                 if self.reshape_reward is not None:
@@ -569,9 +586,6 @@ class BaseAlgoFlamingoHRL(ABC):
                     )
                 else:
                     self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
-                #self.log_probs[i] = dist.log_prob(action)
-                raw_log_prob = dist.log_prob(raw_action)
-                self.log_probs[ep_idx].append(raw_log_prob[range(num_envs), input_ids_len-1])
 
                 self.advantages[ep_idx].append(0) # initialize the advantages for the episode, ep_idx
 

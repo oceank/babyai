@@ -94,6 +94,9 @@ parser.add_argument("--use-FiLM", action="store_true", default=False,
 parser.add_argument("--use-pixel", action="store_true", default=False,
                     help="the input visual observation to the acmodel is in RGB pixel.")
 
+parser.add_argument("--episode-based-training", action="store_true", default=False,
+                    help="use the entire episode to train the agent.")
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
@@ -267,7 +270,7 @@ if acmodel is None:
             use_pixel = args.use_pixel,
             use_FiLM=args.use_FiLM, cat_img_instr=False, only_lang_part=False
         )
-    else:
+    else: # args.use_FiLM (+LSTM)
         acmodel = ACModel(
             obss_preprocessor.obs_space, num_of_actions,
             args.image_dim, args.memory_dim, args.instr_dim,
@@ -302,8 +305,12 @@ if args.use_subgoal:
 
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
 if args.algo == "ppo":
-    if args.use_subgoal and args.use_vlm:
-        if args.has_expert:
+    # cases:
+    # 1. args.use_subgoal + args.use_vlm
+    # 2. args.use_subgoal + args.use_vlm + args.has_expert (imitation learning)
+    # 3. args.use_subgoal + not arg.use_vlm + args.use_FiLM (+LSTM)
+    if args.episode_based_training:
+        if args.use_subgoal and args.use_vlm and args.had_expert: # imitation learning
             expert_model = utils.load_model(args.expert_model_name)
             expert_obss_preprocessor = utils.ObssPreprocessor(args.expert_model_name, envs[0].observation_space, args.pretrained_model)
             algo = babyai.rl.PPOAlgoFlamingoHRLIL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
@@ -311,20 +318,24 @@ if args.algo == "ppo":
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, expert_obss_preprocessor,
                                     reshape_reward, agent=train_agent, num_episodes=args.num_episodes,
                                     expert_model = expert_model)
-        else: # ToDo: remove obss_preprocessor since it is not used
-            # Temporary
-            #use_FiLM=False, cat_img_instr=False, only_lang_part=False
+ 
+        #use_FiLM=False, cat_img_instr=False, only_lang_part=False
+        # case 1 and case 3
+        else:
             algo = babyai.rl.PPOAlgoFlamingoHRL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
                                     reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc,
-                                    num_episodes_per_batch=args.num_episodes_per_batch)
+                                    num_episodes_per_batch=args.num_episodes_per_batch, use_FiLM=args.use_FiLM)
+
+    # cases: train with recurrent observations
+    # 1. not args.use_subgoal
+    # 2. args.use_subgoal    
     else:
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                                 args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
                                 reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent)
-
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 

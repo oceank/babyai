@@ -183,12 +183,12 @@ class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5,
                  adam_eps=1e-5, clip_eps=0.2, epochs=4, preprocess_obss=None,
                  reshape_reward=None, agent=None, num_episodes=None, use_subgoal_desc=False,
-                 num_episodes_per_batch=1):
+                 num_episodes_per_batch=1, use_FiLM=False):
         num_episodes = num_episodes or 10
 
         super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                          value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
-                         agent=agent, num_episodes=num_episodes, use_subgoal_desc=use_subgoal_desc)
+                         agent=agent, num_episodes=num_episodes, use_subgoal_desc=use_subgoal_desc, use_FiLM=use_FiLM)
 
         self.clip_eps = clip_eps
         self.epochs = epochs
@@ -242,29 +242,49 @@ class PPOAlgoFlamingoHRL(BaseAlgoFlamingoHRL):
                     num_of_subgoals = num_of_subgoals_per_episode[ep_idx]
                     # Create an episode of experience
                     ep = exps[ep_idx]
-                    model_results = self.acmodel(ep.obs, record_subgoal_time_step=True)
-                    dist = model_results['dist']
-                    raw_value = model_results['value']
-                    # subgoal_indice_per_sample: list of lists
-                    # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
-                    # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
-                    subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
-                    # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
-                    input_ids_len = model_results['input_ids_len']
+                    value_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
+                    entropy_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
+                    log_prob_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
 
-                    raw_entropy = dist.entropy()
+                    if self.use_FiLM:
+                        memory = torch.zeros(num_envs, self.acmodel.memory_size, device=self.device)
+                        for i in range(num_of_subgoals):
+                            preprocessed_obs = self.preprocess_obss([ep.obs[i]], device=self.device)
+                            model_results = self.acmodel(preprocessed_obs, memory)
+                            dist = model_results['dist']
+                            value = model_results['value']
+                            memory = model_results['memory']
+                            entropy = dist.entropy().mean()
 
-                    # currently support one process/one environment
-                    value_subgoals = raw_value[range(num_envs), subgoal_indice_per_sample[0]]
-                    entropy_subgoals = raw_entropy[range(num_envs), subgoal_indice_per_sample[0]]
+                            entropy_subgoals[0, i]  = entropy
+                            value_subgoals[0, i]    = value[0]
+                            log_prob_subgoals[0, i] = dist.log_prob(ep.action[i])
+                    else: # use Flamingo model
+                        model_results = self.acmodel(ep.obs, record_subgoal_time_step=True)
+                        dist = model_results['dist']
+                        raw_value = model_results['value']
+                        # subgoal_indice_per_sample: list of lists
+                        # batch_size (number of processes) = length of input_ids_len. (it is 1 for now)
+                        # number of subgoals in each episode i = input_ids_len[0][i]. batch_size=1
+                        subgoal_indice_per_sample = model_results['subgoal_indice_per_sample']
+                        # input_ids_len: 1-D tensor that stores indices of the recent subgoals in each process
+                        input_ids_len = model_results['input_ids_len']
+
+                        raw_entropy = dist.entropy()
+
+                        # currently support one process/one environment
+                        value_subgoals = raw_value[range(num_envs), subgoal_indice_per_sample[0]]
+                        entropy_subgoals = raw_entropy[range(num_envs), subgoal_indice_per_sample[0]]
+                        for i in range(num_of_subgoals):
+                            log_prob_subgoals[0, i] = dist.log_prob(ep.action[i])[0, i]
 
                     for i in range(num_of_subgoals):
-                        value = value_subgoals[i]
-                        entropy = entropy_subgoals[i]
+                        value = value_subgoals[0, i]
+                        entropy = entropy_subgoals[0, i]
                         # Compute loss
                         #entropy = dist.entropy().mean()
 
-                        ratio = torch.exp(dist.log_prob(ep.action[i])[0, i] - ep.log_prob[i])
+                        ratio = torch.exp(log_prob_subgoals[0, i] - ep.log_prob[i])
                         surr1 = ratio * ep.advantage[i]
                         surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep.advantage[i]
                         policy_loss = -torch.min(surr1, surr2).mean()
