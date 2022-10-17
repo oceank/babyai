@@ -14,7 +14,7 @@ class PPOAlgo(BaseAlgo):
                  gae_lambda=0.95,
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5, recurrence=4,
                  adam_eps=1e-5, clip_eps=0.2, epochs=4, batch_size=256, preprocess_obss=None,
-                 reshape_reward=None, aux_info=None, use_subgoal=False, agent=None):
+                 reshape_reward=None, aux_info=None, use_subgoal=False, agent=None, randomize_subbatch=True):
         num_frames_per_proc = num_frames_per_proc or 128
 
         super().__init__(envs, acmodel, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef,
@@ -29,6 +29,8 @@ class PPOAlgo(BaseAlgo):
 
         self.optimizer = torch.optim.Adam(self.acmodel.parameters(), lr, (beta1, beta2), eps=adam_eps)
         self.batch_num = 0
+
+        self.randomize_subbatch = randomize_subbatch
 
     def update_parameters(self):
         # Collect experiences
@@ -166,7 +168,8 @@ class PPOAlgo(BaseAlgo):
         """
 
         indexes = numpy.arange(0, self.num_frames, self.recurrence)
-        indexes = numpy.random.permutation(indexes)
+        if self.randomize_subbatch:
+            indexes = numpy.random.permutation(indexes)
 
         num_indexes = self.batch_size // self.recurrence
         batches_starting_indexes = [indexes[i:i + num_indexes] for i in range(0, len(indexes), num_indexes)]

@@ -335,7 +335,7 @@ if args.algo == "ppo":
         algo = babyai.rl.PPOAlgo(envs, acmodel, args.frames_per_proc, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda,args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                                 args.optim_eps, args.clip_eps, args.ppo_epochs, args.batch_size, obss_preprocessor,
-                                reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent)
+                                reshape_reward, use_subgoal=args.use_subgoal, agent=train_agent, randomize_subbatch=True)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
