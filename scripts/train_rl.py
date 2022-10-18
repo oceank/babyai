@@ -96,6 +96,10 @@ parser.add_argument("--use-pixel", action="store_true", default=False,
 
 parser.add_argument("--episode-based-training", action="store_true", default=False,
                     help="use the entire episode to train the agent.")
+parser.add_argument("--average-loss-by-subgoals", action="store_true", default=False,
+                    help="average loss by subgoals from diferent episodes.")
+parser.add_argument("--episode-weight-type", type=int, default=0,
+                    help="0 indicates all subgoals has the same weight when calculating averaged loss of a batch; 1 indicates each subgoal has a weight of 1/num_subgoals_in_episode.")
 
 args = parser.parse_args()
 
@@ -310,7 +314,7 @@ if args.algo == "ppo":
     # 2. args.use_subgoal + args.use_vlm + args.has_expert (imitation learning)
     # 3. args.use_subgoal + not arg.use_vlm + args.use_FiLM (+LSTM)
     if args.episode_based_training:
-        if args.use_subgoal and args.use_vlm and args.had_expert: # imitation learning
+        if args.use_subgoal and args.use_vlm and args.has_expert: # imitation learning
             expert_model = utils.load_model(args.expert_model_name)
             expert_obss_preprocessor = utils.ObssPreprocessor(args.expert_model_name, envs[0].observation_space, args.pretrained_model)
             algo = babyai.rl.PPOAlgoFlamingoHRLIL(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
@@ -326,7 +330,9 @@ if args.algo == "ppo":
                                     args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                     args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor,
                                     reshape_reward, agent=train_agent, num_episodes=args.num_episodes, use_subgoal_desc=args.use_subgoal_desc,
-                                    num_episodes_per_batch=args.num_episodes_per_batch, use_FiLM=args.use_FiLM)
+                                    num_episodes_per_batch=args.num_episodes_per_batch, use_FiLM=args.use_FiLM,
+                                    average_loss_by_subgoals=args.average_loss_by_subgoals,
+                                    episode_weight_type=args.episode_weight_type)
 
     # cases: train with recurrent observations
     # 1. not args.use_subgoal
