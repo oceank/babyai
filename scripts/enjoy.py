@@ -208,6 +208,7 @@ while True:
             print("step: {}, mission: {}".format(step, obs['mission']))
         if done:
             print(f"Reward: {reward}\n")
+            env.render("human")
             all_rewards.append(reward)
             episode_num += 1
             if episode_num == max_num_episodes:
