@@ -9,6 +9,7 @@ import gym
 import time
 
 import babyai.utils as utils
+from babyai.levels.verifier import *
 
 import numpy as np
 
@@ -96,12 +97,74 @@ if use_subgoals:
 
 # Define agent
 agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal)
-
+if args.demos is not None:
+    max_num_episodes = len(agent.demos)
 # Run the agent
 
 done = True
 
 action = None
+
+# List of object colors
+COLORS = [
+    'red'   ,
+    'green' ,
+    'blue'  ,
+    'purple',
+    'yellow',
+    'grey'  ,
+]
+
+# Map of object type to integers
+OBJECT_TYPES = [
+    'door'          ,
+    'key'           ,
+    'ball'          ,
+    'box'           ,
+]
+
+subgoal_instructions = []
+open_instrs = []
+pickup_instrs = []
+goto_instrs = []
+pass_instrs = []
+
+for obj_type in OBJECT_TYPES:
+    for color in COLORS:
+        obj = ObjDesc(obj_type, color=color)
+        if obj_type == 'door':
+            open_instrs.append(OpenInstr(obj))
+            pass_instrs.append(PassInstr(obj))
+        elif obj_type == 'ball':
+            goto_instrs.append(GoToInstr(obj))
+        else:
+            pickup_instrs.append(PickupInstr(obj))
+            goto_instrs.append(GoToInstr(obj))
+
+subgoal_instructions = open_instrs
+subgoal_instructions.extend(pass_instrs)
+subgoal_instructions.extend(goto_instrs)
+subgoal_instructions.extend(pickup_instrs)
+
+def filter_valid_subgoal_instrs(subgoal_instructions, env):
+    valid_subgoal_instructions = []
+    for instr in subgoal_instructions:
+        instr.reset_verifier(env)
+        if len(instr.desc.obj_set) > 0:
+            instr.instr_desc = instr.surface(env)
+            valid_subgoal_instructions.append(instr)
+
+    return valid_subgoal_instructions
+
+def check_completed_subgoals(subgoal_instructions, action, env):
+    msg = ""
+    completed_subgoals = 0
+    for instruction in subgoal_instructions:
+        result = instruction.verify(action)
+        if result == 'success':
+            completed_subgoals += 1
+            msg += f"\tSG{completed_subgoals}: {instruction.instr_desc}\n"
+    return msg
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -181,8 +244,12 @@ if args.manual_mode:
     env.render('human')
     env.window.reg_key_handler(keyDownCb)
 
+if use_subgoals:
+    print(f"[Please choose the next subgoal:]")
 
-print(f"[Please choose the next subgoal:]")
+print(f"Total number of subgoals: {len(subgoal_instructions)}")
+valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+print(f"# of valid subgoals: {len(valid_subgoal_instructions)}")
 
 step = 0
 episode_num = 0
@@ -193,6 +260,8 @@ while True:
         result = agent.act(obs)
         action = result['action']
         obs, reward, done, _ = env.step(action)
+
+        action_name = env.get_action_name(action)
 
         #verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
         if use_subgoals:
@@ -205,7 +274,11 @@ while True:
             print("step: {}, mission: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
                 step, obs["mission"], dist_str, float(dist.entropy()), float(value)))
         else:
-            print("step: {}, mission: {}".format(step, obs['mission']))
+            print("step: {}, mission: {}, action: {}".format(step, obs['mission'], env.get_action_name(action)))
+        
+        msg = check_completed_subgoals(valid_subgoal_instructions, action, env)
+        print(msg)
+
         if done:
             print(f"Reward: {reward}\n")
             env.render("human")
@@ -231,7 +304,10 @@ while True:
 
             agent.on_reset()
             step = 0
-        
+
+            valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+            print(f"\n# of valid subgoals: {len(valid_subgoal_instructions)}")
+
         if use_subgoals and (done or is_subgoal_completed):
             print(f"[Please choose the next subgoal:]")
 
