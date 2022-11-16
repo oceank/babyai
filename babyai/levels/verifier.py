@@ -168,6 +168,7 @@ class Instr:
 
     def __init__(self):
         self.env = None
+        self.instr_desc = ""
 
     def surface(self, env):
         """
@@ -349,6 +350,95 @@ class PickupInstr(ActionInstr):
 
         return 'continue'
 
+
+class PassInstr(ActionInstr):
+    """
+    Go through an opened door
+    eg: pass the blue door
+    """
+    def __init__(self, obj_desc, strict=False):
+        super().__init__()
+        assert obj_desc.type == 'door'
+        self.desc = obj_desc
+        self.strict = strict
+
+        self.doorApproached = None
+        self.insideDoor = False
+        # It is used to track the agent' direction relative
+        # to the door when it is inside the door. 
+        # Starts to count when seld.insideDoor becomes True
+        # Default value is 0.
+        # self.rotateTimes%4 = 
+        #   0  : the agent faces the new room
+        #   2  : the agent faces the coming room
+        #   1/3: the agent faces a wall that is in a direction
+        #        perpendicular to the passway of the door.
+        #        So, 'farward' action takes no effect.
+        self.rotateTimes = 0       
+
+    def surface(self, env):
+        return 'pass ' + self.desc.surface(env)
+
+    def reset_verifier(self, env):
+        super().reset_verifier(env)
+
+        # entered the door
+        self.insideDoor = False
+        self.rotateTimes = 0
+        # A door is approached (faced by or entered) by the agent
+        self.doorApproached = None
+
+        # Identify set of possible matching objects in the environment
+        self.desc.find_matching_objs(env)
+
+    def verify_action(self, action):
+
+        front_cell = self.env.grid.get(*self.env.front_pos)
+
+        if self.insideDoor:
+            if action == self.env.actions.forward:
+                if self.rotateTimes%4 == 0:
+                    if front_cell and front_cell.type == 'empty':
+                        passCorrectDoor = False
+                        for door in self.desc.obj_set:
+                            if self.doorApproached is door:
+                                passCorrectDoor = True
+                                break
+                        self.doorApproached = None
+                        self.insideDoor = False
+                        self.rotateTimes = 0
+                             
+                        if passCorrectDoor:        
+                            return 'success'
+
+                        # If in strict mode, passing a wrong door leads to a failure
+                        if self.strict:
+                            return 'failure'
+
+                    # else branch: the passway is blocked by some object
+
+                elif self.rotateTimes%4 == 2:
+                    self.doorApproached = None
+                    self.insideDoor = False
+                    self.rotateTimes = 0
+                #else branch: inside the door and face a wall
+
+            elif action == self.env.actions.left:
+                self.rotateTimes -= 1
+            elif action == self.env.actions.right:
+                self.rotateTimes += 1
+
+        else:
+            if not self.doorApproached:
+                if front_cell and front_cell.type == 'door' and front_cell.is_open:
+                    self.doorApproached = front_cell
+            else:
+                if action == self.env.actions.forward:
+                    self.insideDoor = True
+                elif action == self.env.actions.left or action == self.env.actions.right:
+                    self.doorApproached = None
+        
+        return 'continue'
 
 class PutNextInstr(ActionInstr):
     """
