@@ -95,8 +95,8 @@ def generate_demos(n_episodes, valid, seed, shift=0):
         obs = env.reset()
         agent.on_reset()
 
-        agent_initial_position = env.grid.agent_pos.copy()
-        agent_initial_direction = env.grid.agent_dir
+        agent_initial_position = env.agent_pos.copy()
+        agent_initial_direction = env.agent_dir
 
         actions = []
         mission = obs["mission"]
