@@ -129,17 +129,24 @@ pickup_instrs = []
 goto_instrs = []
 pass_instrs = []
 
+
+# OpenDoor
+# PassDoor
+# OpenBox
+# Pickup: box, ball, key
+# DropNext: next to box, ball, key or door
+# GoToBalll
 for obj_type in OBJECT_TYPES:
     for color in COLORS:
         obj = ObjDesc(obj_type, color=color)
         if obj_type == 'door':
             open_instrs.append(OpenInstr(obj))
             pass_instrs.append(PassInstr(obj))
-        elif obj_type == 'ball':
-            goto_instrs.append(GoToInstr(obj))
         else:
             pickup_instrs.append(PickupInstr(obj))
-            goto_instrs.append(GoToInstr(obj))
+            if obj_type == 'ball':
+                goto_instrs.append(GoToInstr(obj))
+
 
 subgoal_instructions = open_instrs
 subgoal_instructions.extend(pass_instrs)
@@ -156,15 +163,22 @@ def filter_valid_subgoal_instrs(subgoal_instructions, env):
 
     return valid_subgoal_instructions
 
-def check_completed_subgoals(subgoal_instructions, action, env):
+def check_completed_subgoals(initial_valid_subgoal_instructions, subgoal_instructions, action, env):
     msg = ""
     completed_subgoals = 0
+    objects_picked_or_dropped = False
     for instruction in subgoal_instructions:
         result = instruction.verify(action)
         if result == 'success':
             completed_subgoals += 1
             msg += f"\tSG{completed_subgoals}: {instruction.instr_desc}\n"
-    return msg
+            # When 'pickup' or 'drop' instruction succeeds, the grid is changed.
+            # So, the valid subgoal instructions need to be updated
+            if isinstance(instruction, PickupInstr):
+                objects_picked_or_dropped = True
+    if objects_picked_or_dropped:
+        subgoal_instructions = filter_valid_subgoal_instrs(initial_valid_subgoal_instructions, env)
+    return msg, subgoal_instructions
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -178,6 +192,9 @@ def keyDownCb(event):
     global obs
     global use_subgoals
     global step
+    global initial_valid_subgoal_instructions
+    global valid_subgoal_instructions
+    global episode_num
 
     keyName = event.key
 
@@ -212,10 +229,18 @@ def keyDownCb(event):
             else:
                 action = agent.act(obs)['action']
 
+        # unsupported key
+        else:
+            print(f"The entered key, {keyName}, is not supported.")
+            return
+
         obs, reward, done, _ = env.step(action)
 
+        print(f"[Low-level Step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}")
+        msg, valid_subgoal_instructions = check_completed_subgoals(initial_valid_subgoal_instructions, valid_subgoal_instructions, action, env)
+        print(msg)
+
         step += 1
-        print(f"[Low-level Step {step}] {keyName}")
 
         #verify_current_subgoal_helper(use_subgoals, agent, action, env, obs)
         if use_subgoals:
@@ -228,12 +253,18 @@ def keyDownCb(event):
         agent.analyze_feedback(reward, done)
         if done:
             print(f"Reward: {reward}\n")
+            episode_num += 1
+            env.seed(args.seed + episode_num)
             obs = env.reset()
             print("Mission: {}".format(obs["mission"]))
             step = 0
 
             if use_subgoals:
                 agent.reinitialize_mission(env)
+
+            initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+            valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
+            print(f"\n# of valid subgoals: {len(valid_subgoal_instructions)}")
 
         if use_subgoals and (done or is_subgoal_completed):
             print(f"[Please choose the next subgoal:]")
@@ -248,7 +279,8 @@ if use_subgoals:
     print(f"[Please choose the next subgoal:]")
 
 print(f"Total number of subgoals: {len(subgoal_instructions)}")
-valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
 print(f"# of valid subgoals: {len(valid_subgoal_instructions)}")
 
 step = 0
@@ -276,7 +308,7 @@ while True:
         else:
             print("step: {}, mission: {}, action: {}".format(step, obs['mission'], env.get_action_name(action)))
         
-        msg = check_completed_subgoals(valid_subgoal_instructions, action, env)
+        msg, valid_subgoal_instructions = check_completed_subgoals(initial_valid_subgoal_instructions, valid_subgoal_instructions, action, env)
         print(msg)
 
         if done:
@@ -301,18 +333,20 @@ while True:
             #reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
             if use_subgoals:
                 agent.reinitialize_mission(env)
+                print(f"[Please choose the next subgoal:]")
 
             agent.on_reset()
             step = 0
 
-            valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+            initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
+            valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
             print(f"\n# of valid subgoals: {len(valid_subgoal_instructions)}")
-
-        if use_subgoals and (done or is_subgoal_completed):
-            print(f"[Please choose the next subgoal:]")
-
         else:
-            step += 1
+            if use_subgoals and is_subgoal_completed:
+                print(f"[Please choose the next subgoal:]")
+
+            else:
+                step += 1
 
     if env.window.closed:
         break

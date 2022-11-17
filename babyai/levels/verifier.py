@@ -295,6 +295,11 @@ class GoToInstr(ActionInstr):
         self.desc.find_matching_objs(env)
 
     def verify_action(self, action):
+
+        # Only verify when the performed action is: left, right or forward 
+        if action != self.env.actions.forward and action != self.env.actions.left and action != self.env.actions.right:
+            return 'continue'
+
         # For each object position
         for pos in self.desc.obj_poss:
             # If the agent is next to (and facing) the object
