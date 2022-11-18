@@ -403,7 +403,7 @@ class PassInstr(ActionInstr):
         if self.insideDoor:
             if action == self.env.actions.forward:
                 if self.rotateTimes%4 == 0:
-                    if front_cell and front_cell.type == 'empty':
+                    if front_cell is None: # the front_cell is 'empty'
                         passCorrectDoor = False
                         for door in self.desc.obj_set:
                             if self.doorApproached is door:
@@ -435,7 +435,7 @@ class PassInstr(ActionInstr):
 
         else:
             if not self.doorApproached:
-                if front_cell and front_cell.type == 'door' and front_cell.is_open:
+                if front_cell and front_cell.type == 'door' and front_cell.color == self.desc.color and front_cell.is_open:
                     self.doorApproached = front_cell
             else:
                 if action == self.env.actions.forward:
