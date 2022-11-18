@@ -61,13 +61,10 @@ class ObjDesc:
     def __repr__(self):
         return "{} {} {}".format(self.color, self.type, self.loc)
 
-    def surface(self, env):
+    def surface(self, env, is_carried=False):
         """
         Generate a natural language representation of the object description
         """
-
-        self.find_matching_objs(env)
-        assert len(self.obj_set) > 0, "no object matching description"
 
         if self.type:
             s = str(self.type)
@@ -85,11 +82,17 @@ class ObjDesc:
             else:
                 s = s + ' on your ' + self.loc
 
-        # Singular vs plural
-        if len(self.obj_set) > 1:
-            s = 'a ' + s
-        else:
+        self.find_matching_objs(env)
+        if is_carried:
             s = 'the ' + s
+        else:
+            assert len(self.obj_set) > 0, "no object matching description"
+
+            # Singular vs plural
+            if len(self.obj_set) > 1:
+                s = 'a ' + s
+            else:
+                s = 'the ' + s
 
         return s
 
@@ -474,6 +477,52 @@ class PassInstr(ActionInstr):
                 elif action == self.env.actions.left or action == self.env.actions.right:
                     self.doorApproached = None
         
+        return 'continue'
+
+class DropNextInstr(ActionInstr):
+    """
+    Drop the carried object next to another object. Assume the agent is carring an object.
+    eg: put the red ball next to the blue key
+    """
+
+    def __init__(self, obj_carried, obj_fixed, strict=False):
+        super().__init__()
+        assert not obj_carried or obj_carried.type != 'door'
+        self.initially_carried_obj = obj_carried
+        self.desc = obj_fixed # the target object that the agent needs to put its carried one next to 
+        self.strict = strict
+
+        self.preCarrying = obj_carried
+
+    def surface(self, env):
+        carried_obj_desc = ""
+        if self.initially_carried_obj:
+            carried_obj_desc = " " + self.initially_carried_obj.surface(env)
+        return 'put' + carried_obj_desc+ ' next to ' + self.desc.surface(env)
+
+    def reset_verifier(self, env):
+        super().reset_verifier(env)
+
+        # Identify set of possible matching objects in the environment
+        self.desc.find_matching_objs(env)
+
+    def verify_action(self, action):
+        # To keep track of what was carried at the last time step
+        preCarrying = self.preCarrying
+        self.preCarrying = self.env.carrying
+
+        # Only verify when the drop action is performed
+        if preCarrying and action == self.env.actions.drop:
+            pos_a = preCarrying.cur_pos
+
+            for pos_b in self.desc.obj_poss:
+                if pos_next_to(pos_a, pos_b):
+                    return 'success'
+
+            # in strict mode, droping the carried object next to a wrong object
+            if self.strict:
+                return 'failure'
+
         return 'continue'
 
 class PutNextInstr(ActionInstr):

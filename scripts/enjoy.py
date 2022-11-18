@@ -128,6 +128,7 @@ open_instrs = []
 pickup_instrs = []
 goto_instrs = []
 pass_instrs = []
+drop_instrs = []
 
 
 # OpenDoor
@@ -148,12 +149,14 @@ for obj_type in OBJECT_TYPES:
                 open_instrs.append(OpenBoxInstr(obj))
 
         goto_instrs.append(GoToInstr(obj))
+        drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj))
 
 
 subgoal_instructions = open_instrs
 subgoal_instructions.extend(pass_instrs)
 subgoal_instructions.extend(goto_instrs)
 subgoal_instructions.extend(pickup_instrs)
+subgoal_instructions.extend(drop_instrs)
 
 def filter_valid_subgoal_instrs(subgoal_instructions, env):
     valid_subgoal_instructions = []
@@ -168,17 +171,14 @@ def filter_valid_subgoal_instrs(subgoal_instructions, env):
 def check_completed_subgoals(initial_valid_subgoal_instructions, subgoal_instructions, action, env):
     msg = ""
     completed_subgoals = 0
-    objects_picked_or_dropped = False
     for instruction in subgoal_instructions:
         result = instruction.verify(action)
         if result == 'success':
             completed_subgoals += 1
             msg += f"\tSG{completed_subgoals}: {instruction.instr_desc}\n"
-            # When 'pickup' or 'drop' instruction succeeds, the grid is changed.
-            # So, the valid subgoal instructions need to be updated
-            if isinstance(instruction, PickupInstr):
-                objects_picked_or_dropped = True
-    if objects_picked_or_dropped:
+
+    # When the grid is changed, the valid subgoal instructions need to be updated
+    if env.grid_changed:
         subgoal_instructions = filter_valid_subgoal_instrs(initial_valid_subgoal_instructions, env)
     return msg, subgoal_instructions
 
