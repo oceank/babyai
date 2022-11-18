@@ -37,6 +37,104 @@ def pos_next_to(pos_a, pos_b):
     d = abs(xa - xb) + abs(ya - yb)
     return d == 1
 
+class LowlevelInstrSet:
+    """
+    The set of all low-level instructions and its valid version for a specific environment.
+    Each instruction corresponds to one low-level subgoal.
+    Each instruction is an interaction between the agent and one object.
+    """
+
+    def __init__(self, object_types, object_colors):
+        self.object_types = object_types
+        self.object_colors = object_colors
+        self.all_instructions = self.generate_all_instructions()
+        self.initial_valid_instructions = []
+        self.current_valid_instructions = []
+
+    def generate_all_instructions(self):
+        """
+        6 types of low-level instructions (subgoals)
+        OpenDoorLocal:
+            If the door is closed, open it; 
+            If the door is locked and agent the right key, unlock and open the door.
+        PassDoorLocal:
+            The door is open and unblocked on both sides.
+        PickupLocal:
+            If nothing has been carried, then an object, like a key, box, ball, can be picked.
+        DropNextLocal:
+            The drop location is next to an object, key, box, ball.
+            Can only drop onto an 'empty' cell.
+        OpenBoxLocal:
+            open the box and uncover the object inside it if there is one.
+            The opened box will be removed from the environment grid.
+        GoToLocal:
+            Only verify when the performed action is 'left', 'right', or 'forward'.
+
+        """
+
+        subgoal_instructions = []
+        open_instrs = []
+        pickup_instrs = []
+        goto_instrs = []
+        pass_instrs = []
+        drop_instrs = []
+
+        for obj_type in self.object_types:
+            for color in self.object_colors:
+                obj = ObjDesc(obj_type, color=color)
+                if obj_type == 'door':
+                    open_instrs.append(OpenInstr(obj))
+                    pass_instrs.append(PassInstr(obj))
+                else:
+                    pickup_instrs.append(PickupInstr(obj))
+                    if obj_type == 'box':
+                        open_instrs.append(OpenBoxInstr(obj))
+
+                goto_instrs.append(GoToInstr(obj))
+                drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj))
+
+        subgoal_instructions = open_instrs
+        subgoal_instructions.extend(pass_instrs)
+        subgoal_instructions.extend(goto_instrs)
+        subgoal_instructions.extend(pickup_instrs)
+        subgoal_instructions.extend(drop_instrs)
+
+        return subgoal_instructions
+
+    def reset_valid_instructions(self, env):
+        self.initial_valid_instructions = self.filter_valid_instructions(self.all_instructions, env)
+        self.current_valid_instructions = self.initial_valid_instructions.copy()
+
+    def filter_valid_instructions(self, instructions, env):
+        valid_instructions = []
+        for instr in instructions:
+            instr.reset_verifier(env)
+            if len(instr.desc.obj_set) > 0:
+                instr.instr_desc = instr.surface(env)
+                valid_instructions.append(instr)
+
+        return valid_instructions
+
+    def update_current_valid_instructions(self, env):
+        self.current_valid_instructions = self.filter_valid_instructions(self.initial_valid_instructions, env)
+
+    def check_completed_instructions(self, action, env):
+        """
+        Check if any valid low-level instructions are completed after performing the 'action'
+        """
+        msg = []
+        for instruction in self.current_valid_instructions:
+            result = instruction.verify(action)
+            if result == 'success':
+                msg.append(instruction.instr_desc)
+
+        # When the grid is changed, the valid subgoal instructions need to be updated
+        if env.grid_changed:
+            self.update_current_valid_instructions(env)
+
+        msg = ". ".join(msg)
+        return msg        
+
 
 class ObjDesc:
     """

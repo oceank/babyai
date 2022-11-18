@@ -9,7 +9,7 @@ import gym
 import time
 
 import babyai.utils as utils
-from babyai.levels.verifier import *
+from babyai.levels.verifier import LowlevelInstrSet
 
 import numpy as np
 
@@ -123,64 +123,11 @@ OBJECT_TYPES = [
     'box'           ,
 ]
 
-subgoal_instructions = []
-open_instrs = []
-pickup_instrs = []
-goto_instrs = []
-pass_instrs = []
-drop_instrs = []
+lowlevel_instr_set = LowlevelInstrSet(OBJECT_TYPES, COLORS)
+print(f"Total number of subgoals: {len(lowlevel_instr_set.all_instructions)}")
+lowlevel_instr_set.reset_valid_instructions(env)
+print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
 
-
-# OpenDoor
-# PassDoor
-# OpenBox
-# Pickup: box, ball, key
-# DropNext: next to box, ball, key or door
-# GoToBalll
-for obj_type in OBJECT_TYPES:
-    for color in COLORS:
-        obj = ObjDesc(obj_type, color=color)
-        if obj_type == 'door':
-            open_instrs.append(OpenInstr(obj))
-            pass_instrs.append(PassInstr(obj))
-        else:
-            pickup_instrs.append(PickupInstr(obj))
-            if obj_type == 'box':
-                open_instrs.append(OpenBoxInstr(obj))
-
-        goto_instrs.append(GoToInstr(obj))
-        drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj))
-
-
-subgoal_instructions = open_instrs
-subgoal_instructions.extend(pass_instrs)
-subgoal_instructions.extend(goto_instrs)
-subgoal_instructions.extend(pickup_instrs)
-subgoal_instructions.extend(drop_instrs)
-
-def filter_valid_subgoal_instrs(subgoal_instructions, env):
-    valid_subgoal_instructions = []
-    for instr in subgoal_instructions:
-        instr.reset_verifier(env)
-        if len(instr.desc.obj_set) > 0:
-            instr.instr_desc = instr.surface(env)
-            valid_subgoal_instructions.append(instr)
-
-    return valid_subgoal_instructions
-
-def check_completed_subgoals(initial_valid_subgoal_instructions, subgoal_instructions, action, env):
-    msg = ""
-    completed_subgoals = 0
-    for instruction in subgoal_instructions:
-        result = instruction.verify(action)
-        if result == 'success':
-            completed_subgoals += 1
-            msg += f"\tSG{completed_subgoals}: {instruction.instr_desc}\n"
-
-    # When the grid is changed, the valid subgoal instructions need to be updated
-    if env.grid_changed:
-        subgoal_instructions = filter_valid_subgoal_instrs(initial_valid_subgoal_instructions, env)
-    return msg, subgoal_instructions
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -238,8 +185,8 @@ def keyDownCb(event):
 
         obs, reward, done, _ = env.step(action)
 
-        print(f"[Low-level Step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}")
-        msg, valid_subgoal_instructions = check_completed_subgoals(initial_valid_subgoal_instructions, valid_subgoal_instructions, action, env)
+        msg = f"[step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}, completed_subgoal(s):"
+        msg += "\n\t" + lowlevel_instr_set.check_completed_instructions(action, env)
         print(msg)
 
         step += 1
@@ -264,9 +211,8 @@ def keyDownCb(event):
             if use_subgoals:
                 agent.reinitialize_mission(env)
 
-            initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
-            valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
-            print(f"\n# of valid subgoals: {len(valid_subgoal_instructions)}")
+            lowlevel_instr_set.reset_valid_instructions(env)
+            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
 
         if use_subgoals and (done or is_subgoal_completed):
             print(f"[Please choose the next subgoal:]")
@@ -279,11 +225,6 @@ if args.manual_mode:
 
 if use_subgoals:
     print(f"[Please choose the next subgoal:]")
-
-print(f"Total number of subgoals: {len(subgoal_instructions)}")
-initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
-valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
-print(f"# of valid subgoals: {len(valid_subgoal_instructions)}")
 
 step = 0
 episode_num = 0
@@ -302,15 +243,17 @@ while True:
             is_subgoal_completed = agent.verify_current_subgoal(action)
 
         agent.analyze_feedback(reward, done)
+        msg = ""
         if 'dist' in result and 'value' in result:
             dist, value = result['dist'], result['value']
             dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
-            print("step: {}, mission: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-                step, obs["mission"], dist_str, float(dist.entropy()), float(value)))
+            msg = "step: {}, mission: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
+                step, obs["mission"], dist_str, float(dist.entropy()), float(value))
         else:
-            print("step: {}, mission: {}, action: {}".format(step, obs['mission'], env.get_action_name(action)))
+            msg = "step: {}, mission: {}, action: {}".format(
+                step, obs['mission'], env.get_action_name(action))
         
-        msg, valid_subgoal_instructions = check_completed_subgoals(initial_valid_subgoal_instructions, valid_subgoal_instructions, action, env)
+        msg += "completed subgoals:\n\t" + lowlevel_instr_set.check_completed_instructions(action, env)
         print(msg)
 
         if done:
@@ -332,7 +275,7 @@ while True:
             obs = env.reset()
 
             print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
-            #reinitialize_mission_and_subgoals_helper(use_subgoals, agent, env, obs)
+
             if use_subgoals:
                 agent.reinitialize_mission(env)
                 print(f"[Please choose the next subgoal:]")
@@ -340,9 +283,8 @@ while True:
             agent.on_reset()
             step = 0
 
-            initial_valid_subgoal_instructions = filter_valid_subgoal_instrs(subgoal_instructions, env)
-            valid_subgoal_instructions = initial_valid_subgoal_instructions.copy()
-            print(f"\n# of valid subgoals: {len(valid_subgoal_instructions)}")
+            lowlevel_instr_set.reset_valid_instructions(env)
+            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
         else:
             if use_subgoals and is_subgoal_completed:
                 print(f"[Please choose the next subgoal:]")
