@@ -144,6 +144,8 @@ for obj_type in OBJECT_TYPES:
             pass_instrs.append(PassInstr(obj))
         else:
             pickup_instrs.append(PickupInstr(obj))
+            if obj_type == 'box':
+                open_instrs.append(OpenBoxInstr(obj))
 
         goto_instrs.append(GoToInstr(obj))
 

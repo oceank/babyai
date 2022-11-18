@@ -308,6 +308,37 @@ class GoToInstr(ActionInstr):
 
         return 'continue'
 
+class OpenBoxInstr(ActionInstr):
+    def __init__(self, obj_desc, strict=False):
+        super().__init__()
+        assert obj_desc.type == 'box'
+        self.desc = obj_desc
+        self.strict = strict
+
+    def surface(self, env):
+        return 'open ' + self.desc.surface(env)
+
+    def reset_verifier(self, env):
+        super().reset_verifier(env)
+
+        # Identify set of possible matching objects in the environment
+        self.desc.find_matching_objs(env)
+
+    def verify_action(self, action):
+        # Only verify when the toggle action is performed
+        if action != self.env.actions.toggle:
+            return 'continue'
+
+        for box in self.desc.obj_set:
+            if self.env.box_opened and self.env.box_opened is box:
+                return 'success'
+
+        # If in strict mode and the wrong door is opened, failure
+        if self.strict:
+            if self.env.box_opened and self.env.box_opened.type == 'box':
+                return 'failure'
+
+        return 'continue'
 
 class PickupInstr(ActionInstr):
     """
