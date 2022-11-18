@@ -144,8 +144,8 @@ for obj_type in OBJECT_TYPES:
             pass_instrs.append(PassInstr(obj))
         else:
             pickup_instrs.append(PickupInstr(obj))
-            if obj_type == 'ball':
-                goto_instrs.append(GoToInstr(obj))
+
+        goto_instrs.append(GoToInstr(obj))
 
 
 subgoal_instructions = open_instrs
