@@ -531,12 +531,13 @@ class RandomAgent:
 class DemoAgent(Agent):
     """A demonstration-based agent. This agent behaves using demonstrations."""
 
-    def __init__(self, demos_name, env_name, origin):
+    def __init__(self, demos_name, env_name, origin, check_subgoal_completion=False):
         self.demos_path = utils.get_demos_path(demos_name, env_name, origin, valid=False)
         self.demos = utils.load_demos(self.demos_path)
-        self.demos = utils.demos.transform_demos(self.demos)
+        self.demos = utils.demos.transform_demos(self.demos, check_subgoal_completion)
         self.demo_id = 0
         self.step_id = 0
+        self.check_subgoal_completion = check_subgoal_completion
 
     @staticmethod
     def check_obss_equality(obs1, obs2):
@@ -557,7 +558,10 @@ class DemoAgent(Agent):
         expected_obs = self.demos[self.demo_id][self.step_id][0]
         assert DemoAgent.check_obss_equality(obs, expected_obs), "The observations do not match"
 
-        return {'action': self.demos[self.demo_id][self.step_id][1]}
+        result = {'action': self.demos[self.demo_id][self.step_id][1]}
+        if self.check_subgoal_completion:
+            result['completed_subgoals'] = self.demos[self.demo_id][self.step_id][3]
+        return result
 
     def analyze_feedback(self, reward, done):
         self.step_id += 1
@@ -584,7 +588,7 @@ class BotAgent:
         pass
 
 
-def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True, env_name=None, subgoals=None, goal=None):
+def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True, env_name=None, subgoals=None, goal=None, check_subgoal_completion=False):
     # env_name needs to be specified for demo agents
     if model_name == "SubGoalModelAgent":
         return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax)
@@ -594,4 +598,4 @@ def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True,
         obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)
         return ModelAgent(model_name, obss_preprocessor, argmax)
     elif demos_origin is not None or demos_name is not None:
-        return DemoAgent(demos_name=demos_name, env_name=env_name, origin=demos_origin)
+        return DemoAgent(demos_name=demos_name, env_name=env_name, origin=demos_origin, check_subgoal_completion=check_subgoal_completion)

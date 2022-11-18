@@ -24,6 +24,7 @@ import blosc
 import torch
 
 import babyai.utils as utils
+from babyai.levels.verifier import LowlevelInstrSet
 
 # Parse arguments
 
@@ -71,13 +72,16 @@ def print_demo_lengths(demos):
 def generate_demos(n_episodes, valid, seed, shift=0):
     utils.seed(seed)
 
+    # Initialize the set of instructions for low-level tasks
+    lowlevel_instr_set = LowlevelInstrSet()
+    # print(f"Total number of subgoals: {len(lowlevel_instr_set.all_instructions)}")
+
     # Generate environment
     env = gym.make(args.env)
 
     agent = utils.load_agent(env, args.model, args.demos, 'agent', args.argmax, args.env)
     demos_path = utils.get_demos_path(args.demos, args.env, 'agent', valid)
     demos = []
-    agent_initial_position = None
 
     checkpoint_time = time.time()
 
@@ -95,14 +99,14 @@ def generate_demos(n_episodes, valid, seed, shift=0):
         obs = env.reset()
         agent.on_reset()
 
-        agent_initial_position = env.agent_pos.copy()
-        agent_initial_direction = env.agent_dir
+        lowlevel_instr_set.reset_valid_instructions(env)
+        # print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
 
         actions = []
         mission = obs["mission"]
         images = []
         directions = []
-        rewards = []
+        completed_subgoals = []
 
         try:
             while not done:
@@ -112,14 +116,18 @@ def generate_demos(n_episodes, valid, seed, shift=0):
                 new_obs, reward, done, _ = env.step(action)
                 agent.analyze_feedback(reward, done)
 
+                current_completed_subgoals = lowlevel_instr_set.check_completed_instructions(action, env)
+
                 actions.append(action)
                 images.append(obs['image'])
                 directions.append(obs['direction'])
-                rewards.append(reward)
+
+                completed_subgoals.append(current_completed_subgoals)
 
                 obs = new_obs
+
             if reward > 0 and (args.filter_steps == 0 or len(images) <= args.filter_steps):
-                demos.append((mission, blosc.pack_array(np.array(images)), directions, actions, rewards, agent_initial_position, agent_initial_direction, seed+len(demos)))
+                demos.append((mission, blosc.pack_array(np.array(images)), directions, actions, completed_subgoals, reward, seed+len(demos)))
                 just_crashed = False
 
             if reward == 0:

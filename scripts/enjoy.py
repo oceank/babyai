@@ -96,7 +96,8 @@ if use_subgoals:
 
 
 # Define agent
-agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal)
+check_subgoal_completion = True # temporary; set it as an input argument to the script
+agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal, check_subgoal_completion)
 if args.demos is not None:
     max_num_episodes = len(agent.demos)
 # Run the agent
@@ -105,29 +106,12 @@ done = True
 
 action = None
 
-# List of object colors
-COLORS = [
-    'red'   ,
-    'green' ,
-    'blue'  ,
-    'purple',
-    'yellow',
-    'grey'  ,
-]
-
-# Map of object type to integers
-OBJECT_TYPES = [
-    'door'          ,
-    'key'           ,
-    'ball'          ,
-    'box'           ,
-]
-
-lowlevel_instr_set = LowlevelInstrSet(OBJECT_TYPES, COLORS)
+lowlevel_instr_set = LowlevelInstrSet()
 print(f"Total number of subgoals: {len(lowlevel_instr_set.all_instructions)}")
 lowlevel_instr_set.reset_valid_instructions(env)
 print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
-
+if check_subgoal_completion: # temporary; for demo agent
+    expected_completed_subgoals = ""
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -141,9 +125,9 @@ def keyDownCb(event):
     global obs
     global use_subgoals
     global step
-    global initial_valid_subgoal_instructions
-    global valid_subgoal_instructions
     global episode_num
+    global check_subgoal_completion
+    global expected_completed_subgoals
 
     keyName = event.key
 
@@ -176,7 +160,10 @@ def keyDownCb(event):
                 print(f"[No subgoal is selected thus no policy is available for use. Please choose the next subgoal:]")
                 return
             else:
-                action = agent.act(obs)['action']
+                result = agent.act(obs)
+                action = result['action']
+                if check_subgoal_completion: # temporary; for demo agent
+                    expected_completed_subgoals = result['completed_subgoals']
 
         # unsupported key
         else:
@@ -185,8 +172,10 @@ def keyDownCb(event):
 
         obs, reward, done, _ = env.step(action)
 
-        msg = f"[step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}, completed_subgoal(s):"
-        msg += "\n\t" + lowlevel_instr_set.check_completed_instructions(action, env)
+        msg = f"[step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}:"
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.check_completed_instructions(action, env)
+        if check_subgoal_completion:
+            msg += "\n\t [expected completed] " + expected_completed_subgoals
         print(msg)
 
         step += 1
@@ -234,6 +223,10 @@ while True:
     if not args.manual_mode:
         result = agent.act(obs)
         action = result['action']
+
+        if check_subgoal_completion: # temporary; for demo agent
+            expected_completed_subgoals = result['completed_subgoals']
+
         obs, reward, done, _ = env.step(action)
 
         action_name = env.get_action_name(action)
@@ -253,7 +246,9 @@ while True:
             msg = "step: {}, mission: {}, action: {}".format(
                 step, obs['mission'], env.get_action_name(action))
         
-        msg += "completed subgoals:\n\t" + lowlevel_instr_set.check_completed_instructions(action, env)
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.check_completed_instructions(action, env)
+        if check_subgoal_completion:
+            msg += "\n\t [expected completed] " + expected_completed_subgoals
         print(msg)
 
         if done:

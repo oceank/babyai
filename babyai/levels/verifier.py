@@ -44,9 +44,9 @@ class LowlevelInstrSet:
     Each instruction is an interaction between the agent and one object.
     """
 
-    def __init__(self, object_types, object_colors):
-        self.object_types = object_types
-        self.object_colors = object_colors
+    def __init__(self, object_types=None, object_colors=None):
+        self.object_types = object_types or OBJ_TYPES
+        self.object_colors = object_colors or COLOR_NAMES
         self.all_instructions = self.generate_all_instructions()
         self.initial_valid_instructions = []
         self.current_valid_instructions = []

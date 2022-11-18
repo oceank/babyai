@@ -35,7 +35,7 @@ def synthesize_demos(demos):
         print('Demo num frames: {}'.format(num_frames_per_episode))
 
 
-def transform_demos(demos):
+def transform_demos(demos, check_subgoal_completion=False):
     '''
     takes as input a list of demonstrations in the format generated with `make_agent_demos` or `make_human_demos`
     i.e. each demo is a tuple (mission, blosc.pack_array(np.array(images)), directions, actions)
@@ -60,5 +60,16 @@ def transform_demos(demos):
             action = actions[i]
             done = i == n_observations - 1
             new_demo.append((obs, action, done))
+
+        if check_subgoal_completion:
+            completed_subgaols = demo[4]
+            reward = demo[5]
+            seed = demo[6]
+            assert len(directions) == len(completed_subgaols), "error transforming demos with completed subgoals"
+            for i in range(n_observations):
+                new_demo[i] = new_demo[i] + (completed_subgaols[i],)
+            new_demo.append(reward)
+            new_demo.append(seed)
+
         new_demos.append(new_demo)
     return new_demos
