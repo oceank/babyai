@@ -2,7 +2,7 @@ import gym
 from gym_minigrid.envs import Key, Ball, Box
 from .verifier import *
 from .levelgen import *
-
+from gym_minigrid.minigrid import WorldObj, COLOR_TO_IDX, OBJECT_TO_IDX
 
 class Level_GoToRedBlueBall(RoomGridLevel):
     """
@@ -1254,6 +1254,113 @@ class Level_OpenDoorLocalR2KeyDist(Level_OpenDoorLocalR2Key):
             room_size=room_size,
             distractors=True,
             seed=seed
+        )
+
+class Level_PickupLocalR1Dist(RoomGridLevel):
+    """
+    Fetch an object (key, ball or box) in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
+        self.num_distractors = num_distractors
+        super().__init__(
+            num_rows=1,
+            num_cols=1,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, all_unique=True)
+        obj = self._rand_elem(objs)
+
+        self.place_agent(i=0, j=0)
+
+        self.instrs = PickupInstr(ObjDesc(obj.type, obj.color))
+
+class Level_GoToLocalR1Dist(RoomGridLevel):
+    """
+    Fetch an object (key, ball or box) in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
+        self.num_distractors = num_distractors
+        super().__init__(
+            num_rows=1,
+            num_cols=1,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, all_unique=True)
+        obj = self._rand_elem(objs)
+
+        self.place_agent(i=0, j=0)
+
+        self.instrs = GoToInstr(ObjDesc(obj.type, obj.color))
+
+class Level_DropNextLocalR1Dist(RoomGridLevel):
+    """
+    Fetch an object (key, ball or box) in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
+        self.num_distractors = num_distractors
+        super().__init__(
+            num_rows=1,
+            num_cols=1,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, all_unique=True)
+        next_to_obj = self._rand_elem(objs)
+
+        self.place_agent(i=0, j=0)
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+
+        self.instrs = DropNextInstr(
+            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            obj_fixed = ObjDesc(next_to_obj.type, next_to_obj.color)
+        )
+
+class Level_DropNextNothingLocalR1Dist(RoomGridLevel):
+    """
+    Fetch an object (key, ball or box) in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
+        self.num_distractors = num_distractors
+        super().__init__(
+            num_rows=1,
+            num_cols=1,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, all_unique=True)
+
+        self.place_agent(i=0, j=0)
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+
+        self.instrs = DropNextNothingInstr(
+            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            obj_to_drop = ObjDesc(carried_obj_type, carried_obj_color)
         )
 
 for name, level in list(globals().items()):
