@@ -2,7 +2,7 @@ import gym
 from gym_minigrid.envs import Key, Ball, Box
 from .verifier import *
 from .levelgen import *
-from gym_minigrid.minigrid import WorldObj, COLOR_TO_IDX, OBJECT_TO_IDX
+#from gym_minigrid.minigrid import WorldObj, COLOR_TO_IDX, OBJECT_TO_IDX
 
 class Level_GoToRedBlueBall(RoomGridLevel):
     """
@@ -1055,14 +1055,57 @@ class Level_OpenDoorsOrderN4Debug(OpenDoorsOrder):
         )
 
 # Environments for high-level and low-level goals
+## Low-level tasks that are associated with two rooms
+class Level_PickupKeyLocalR2(RoomGridLevel):
+    """
+    Fetch a key in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=0, seed=None):
+        self.num_distractors = num_distractors
+
+        super().__init__(
+            num_rows=1,
+            num_cols=2,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        door, _ = self.add_door(0, 0, 0, locked=True)
+
+        key = Key(door.color)
+        self.place_in_room(0, 0, key)
+
+        if self.num_distractors > 0:
+            self.add_distractors(0, 0, num_distractors=self.num_distractors)
+
+        self.place_agent(0, 0)
+
+        self.instrs = PickupInstr(ObjDesc(key.type, key.color))
+
+class Level_PickupKeyLocalR2Dist(Level_PickupKeyLocalR2):
+    """
+    Fetch a key in the current room
+    """
+
+    def __init__(self, room_size=8, seed=None):
+
+        super().__init__(
+            room_size=room_size,
+            num_distractors=4,
+            seed=seed
+        )
+
 class Level_UnlockLocalR2(RoomGridLevel):
     """
     Fetch a key and unlock a door
     (in the current room)
     """
 
-    def __init__(self, room_size=8, distractors=False, seed=None, use_subgoals=False):
-        self.distractors = distractors
+    def __init__(self, room_size=8, num_distractors=0, seed=None, use_subgoals=False):
+        self.num_distractors = num_distractors
         self.use_subgoals = use_subgoals
 
         super().__init__(
@@ -1079,8 +1122,8 @@ class Level_UnlockLocalR2(RoomGridLevel):
         key = Key(door.color)
         self.place_in_room(0, 0, key)
 
-        if self.distractors:
-            self.add_distractors(0, 0, num_distractors=3)
+        if self.num_distractors > 0:
+            self.add_distractors(0, 0, num_distractors=self.num_distractors)
 
         self.place_agent(0, 0)
 
@@ -1092,86 +1135,31 @@ class Level_UnlockLocalR2(RoomGridLevel):
             {"instr": OpenInstr(ObjDesc(door.type, door.color))}
             ]
 
-class Level_UnlockLocalR2SubGoal(Level_UnlockLocalR2):
-    """
-    Fetch a key and unlock a door
-    (in the current room)
-    """
-
-    def __init__(self, room_size=8, distractors=False, seed=None, use_subgoals=True):
-        super().__init__(
-            room_size=room_size,
-            distractors=distractors,
-            seed=seed,
-            use_subgoals=use_subgoals
-        )
-
-class Level_PickupKeyLocalR2(RoomGridLevel):
-    """
-    Fetch a key in the current room
-    """
-
-    def __init__(self, room_size=8, distractors=False, seed=None):
-        self.distractors = distractors
-
-        super().__init__(
-            num_rows=1,
-            num_cols=2,
-            room_size=room_size,
-            max_steps=8*room_size**2,
-            seed=seed
-        )
-
-    def gen_mission(self):
-        door, _ = self.add_door(0, 0, 0, locked=True)
-
-        key = Key(door.color)
-        self.place_in_room(0, 0, key)
-
-        if self.distractors:
-            self.add_distractors(0, 0, num_distractors=3)
-
-        self.place_agent(0, 0)
-
-        self.instrs = PickupInstr(ObjDesc(key.type, key.color))
-
-class Level_OpenDoorLocalR2(RoomGridLevel):
-    """
-    Open an unlocked door in the current room
-    """
-
-    def __init__(self, room_size=8, distractors=False, seed=None):
-        self.distractors = distractors
-
-        super().__init__(
-            num_rows=1,
-            num_cols=2,
-            room_size=room_size,
-            max_steps=8*room_size**2,
-            seed=seed
-        )
-
-    def gen_mission(self):
-        door, _ = self.add_door(0, 0, locked=False)
-
-        if self.distractors:
-            self.add_distractors(0, 0, num_distractors=3)
-
-        self.place_agent(0, 0)
-
-        self.instrs = OpenInstr(ObjDesc(door.type, door.color))
-
 class Level_UnlockLocalR2Dist(Level_UnlockLocalR2):
     """
     Fetch a key and unlock a door
     (in the current room)
     """
 
-    def __init__(self, room_size=8, distractors=True, seed=None, use_subgoals=False):
+    def __init__(self, room_size=8, num_distractors=4, seed=None, use_subgoals=False):
 
         super().__init__(
             room_size=room_size,
-            distractors=distractors,
+            num_distractors=num_distractors,
+            seed=seed,
+            use_subgoals=use_subgoals
+        )
+
+class Level_UnlockLocalR2SubGoal(Level_UnlockLocalR2):
+    """
+    Fetch a key and unlock a door
+    (in the current room)
+    """
+
+    def __init__(self, room_size=8, num_distractors=0, seed=None, use_subgoals=True):
+        super().__init__(
+            room_size=room_size,
+            num_distractors=num_distractors,
             seed=seed,
             use_subgoals=use_subgoals
         )
@@ -1182,79 +1170,119 @@ class Level_UnlockLocalR2DistSubGoal(Level_UnlockLocalR2):
     (in the current room)
     """
 
-    def __init__(self, room_size=8, distractors=True, seed=None, use_subgoals=True):
+    def __init__(self, room_size=8, num_distractors=4, seed=None, use_subgoals=True):
 
         super().__init__(
             room_size=room_size,
-            distractors=distractors,
+            num_distractors=num_distractors,
             seed=seed,
             use_subgoals=use_subgoals
         )
 
-class Level_PickupKeyLocalR2Dist(Level_PickupKeyLocalR2):
+class Level_OpenDoorLocalR2(RoomGridLevel):
     """
-    Fetch a key in the current room
+    Open a closed door in the current room
     """
 
-    def __init__(self, room_size=8, seed=None):
+    def __init__(self, room_size=8, num_distractors=0, seed=None):
+        self.num_distractors = num_distractors
 
         super().__init__(
+            num_rows=1,
+            num_cols=2,
             room_size=room_size,
-            distractors=True,
-            seed=seed
-        )
-
-class Level_OpenDoorLocalR2Dist(Level_OpenDoorLocalR2):
-    """
-    Open an unlocked door in the current room
-    """
-
-    def __init__(self, room_size=8, seed=None):
-
-        super().__init__(
-            room_size=room_size,
-            distractors=True,
-            seed=seed
-        )
-
-class Level_OpenDoorLocalR2Key(Level_OpenDoorLocalR2):
-    """
-    Open an unlocked door in the current room
-    """
-
-    def __init__(self, room_size=8, distractors=False, seed=None):
-
-        super().__init__(
-            room_size=room_size,
-            distractors=distractors,
+            max_steps=8*room_size**2,
             seed=seed
         )
 
     def gen_mission(self):
         door, _ = self.add_door(0, 0, locked=False)
 
-        key = Key(door.color)
-        self.place_in_room(0, 0, key)
-
-        if self.distractors:
-            self.add_distractors(0, 0, num_distractors=3)
+        if self.num_distractors > 0:
+            self.add_distractors(0, 0, num_distractors=self.num_distractors)
 
         self.place_agent(0, 0)
 
         self.instrs = OpenInstr(ObjDesc(door.type, door.color))
 
-class Level_OpenDoorLocalR2KeyDist(Level_OpenDoorLocalR2Key):
+class Level_OpenDoorLocalR2Dist(Level_OpenDoorLocalR2):
     """
-    Open an unlocked door in the current room
+    Open a closed door that is in the current room.
+    And there are some distractors in the current room.
     """
 
-    def __init__(self, room_size=8, seed=None):
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
 
         super().__init__(
             room_size=room_size,
-            distractors=True,
+            num_distractors=num_distractors,
             seed=seed
         )
+
+class Level_PassDoorLocalR2(RoomGridLevel):
+    """
+    Pass an opened door that is in the current room
+    """
+
+    def __init__(self, room_size=8, num_distractors=0, seed=None):
+        self.num_distractors = num_distractors
+
+        super().__init__(
+            num_rows=1,
+            num_cols=2,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        door, _ = self.add_door(0, 0, locked=False)
+        door.is_open = True
+
+        if self.num_distractors > 0:
+            self.add_distractors(0, 0, num_distractors=self.num_distractors)
+
+        self.place_agent(0, 0)
+
+        self.instrs = PassInstr(ObjDesc(door.type, door.color))
+
+class Level_PassDoorLocalR2Dist(Level_PassDoorLocalR2):
+    """
+    Pass an opened door that is in the current room.
+    And there are some distractors in the current room.
+    """
+
+    def __init__(self,room_size=8, num_distractors=4, seed=None):
+        super().__init__(
+            room_size=room_size,
+            num_distractors=num_distractors,
+            seed=seed
+        )
+
+##  Low-level tasks in one room
+class Level_OpenBoxLocalR1Dist(RoomGridLevel):
+    """
+    Open a box in the current room.
+    """
+
+    def __init__(self, room_size=8, num_distractors=4, seed=None):
+        self.num_distractors = num_distractors
+        super().__init__(
+            num_rows=1,
+            num_cols=1,
+            room_size=room_size,
+            max_steps=8*room_size**2,
+            seed=seed
+        )
+
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1, all_unique=True)
+        box_color = self._rand_elem(COLOR_NAMES)
+        obj, _ = self.add_object(0, 0, 'box', box_color)
+
+        self.place_agent(i=0, j=0)
+
+        self.instrs = OpenBoxInstr(ObjDesc(obj.type, obj.color))
 
 class Level_PickupLocalR1Dist(RoomGridLevel):
     """
