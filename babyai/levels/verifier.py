@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from enum import Enum
-from gym_minigrid.minigrid import COLOR_NAMES, DIR_TO_VEC
+from gym_minigrid.minigrid import WorldObj, COLOR_TO_IDX, OBJECT_TO_IDX, COLOR_NAMES, DIR_TO_VEC
 
 # Object types we are allowed to describe in language
 OBJ_TYPES = ['box', 'ball', 'key', 'door']
@@ -580,10 +580,10 @@ class PassInstr(ActionInstr):
             if not self.doorApproached:
                 if front_cell and front_cell.type == 'door' and front_cell.color == self.desc.color and front_cell.is_open:
                     self.doorApproached = front_cell
-            else:
+            else: # the approached door is open
                 if action == self.env.actions.forward:
                     self.insideDoor = True
-                elif action == self.env.actions.left or action == self.env.actions.right:
+                elif action == self.env.actions.left or action == self.env.actions.right or action == self.env.actions.toggle:
                     self.doorApproached = None
         
         return 'continue'
@@ -601,16 +601,19 @@ class DropNextInstr(ActionInstr):
         self.desc = obj_fixed # the target object that the agent needs to put its carried one next to 
         self.strict = strict
 
-        self.preCarrying = obj_carried
-
     def surface(self, env):
         carried_obj_desc = ""
         if self.initially_carried_obj:
-            carried_obj_desc = " " + self.initially_carried_obj.surface(env)
+            carried_obj_desc = " " + self.initially_carried_obj.surface(env, is_carried=True)
         return 'put' + carried_obj_desc+ ' next to ' + self.desc.surface(env)
 
     def reset_verifier(self, env):
         super().reset_verifier(env)
+
+        if self.initially_carried_obj is not None:
+            self.preCarrying = WorldObj.decode(OBJECT_TO_IDX[self.initially_carried_obj.type], COLOR_TO_IDX[self.initially_carried_obj.color], 0)
+        else:
+            self.preCarrying = None
 
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
