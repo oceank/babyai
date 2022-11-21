@@ -37,6 +37,7 @@ def pos_next_to(pos_a, pos_b):
     d = abs(xa - xb) + abs(ya - yb)
     return d == 1
 
+
 class LowlevelInstrSet:
     """
     The set of all low-level instructions and its valid version for a specific environment.
@@ -86,6 +87,7 @@ class LowlevelInstrSet:
                     open_instrs.append(OpenInstr(obj))
                     pass_instrs.append(PassInstr(obj))
                 else:
+                    drop_instrs.append(DropNextNothingInstr(obj_carried=None, obj_to_drop=obj))
                     pickup_instrs.append(PickupInstr(obj))
                     if obj_type == 'box':
                         open_instrs.append(OpenBoxInstr(obj))
@@ -109,10 +111,19 @@ class LowlevelInstrSet:
         valid_instructions = []
         for instr in instructions:
             instr.reset_verifier(env)
-            if len(instr.desc.obj_set) > 0:
+
+            is_valid = False
+            if isinstance(instr, DropNextNothingInstr):
+                carried_expected_obj = env.carrying and (env.carrying.type==instr.desc.type and env.carrying.color==instr.desc.color)                
+                obj_to_drop_on_grid = len(instr.desc.obj_set) > 0
+                is_valid = obj_to_drop_on_grid or carried_expected_obj
+            else:
+                is_valid = len(instr.desc.obj_set) > 0
+
+            if is_valid:
                 instr.instr_desc = instr.surface(env)
                 valid_instructions.append(instr)
-
+              
         return valid_instructions
 
     def update_current_valid_instructions(self, env):
@@ -620,6 +631,77 @@ class DropNextInstr(ActionInstr):
             # in strict mode, droping the carried object next to a wrong object
             if self.strict:
                 return 'failure'
+
+        return 'continue'
+
+class DropNextNothingInstr(ActionInstr):
+    """
+    Drop the carried object to a location where there are no other objects nearby.
+    eg: put the red ball next to the blue key
+    """
+
+    # Two use cases: two types of initialization parameter values
+    # Case 1 (used when initializing a set of low-level instructions)
+    #   obj_carried is None, obj_to_drop is not None
+    # Case 2 (used when initializing a mission in DropNextNothingLocal environment)
+    #   obj_carried == obj_to_drop, they are not None
+    def __init__(self, obj_carried, obj_to_drop, strict=False):
+        super().__init__()
+        assert not obj_carried or obj_carried.type != 'door'
+        assert obj_to_drop and obj_to_drop.type != 'door'
+
+        self.desc = obj_to_drop
+        self.preCarrying = obj_carried
+
+        self.strict = strict
+
+    # Note:
+    # According to BabyAI language in the BabyAI paper, the grammer of 'put' action is
+    #   put <DescNotDoor> next to <Desc>
+    # So, the instruction patter, 'put <DescNotDoor>', may not be recognized by the BOT
+    # agent provided in the BabyAI paper such that we can not use the BOT agent to solve
+    # the level 'DropNextNothingLocal' for collecting demonstrations.
+    # But it will not impact the process of training a RL agent for solving tasks in
+    # DropNextNothingLocal environments.
+    # The issue can be solved by supplementing the 'put' grammar in BabyAI language
+    # and updating the BOT.
+    def surface(self, env):
+        return 'put ' + self.desc.surface(env, is_carried=True)
+
+    def reset_verifier(self, env):
+        super().reset_verifier(env)
+
+        # Identify set of possible matching objects in the environment
+        self.desc.find_matching_objs(env)
+
+    def verify_action(self, action):
+        # To keep track of what was carried at the last time step
+        preCarrying = self.preCarrying
+        self.preCarrying = self.env.carrying
+
+        # Only verify when the drop action is performed
+        #   preCarrying and not self.preCarring: the previously carried object has been successfully dropped
+        if action == self.env.actions.drop and preCarrying and (not self.preCarrying):
+            # the droped object matches that in the instruction
+            if preCarrying.type == self.desc.type and preCarrying.color == self.desc.color:
+                # Note:
+                # The agent is next to the dropped object on the grid, but it is not captured by the grid but by the env.
+                # So, the cell where the agent locates is empty from the view of the grid. That is, the corresponding
+                # nearby cell is None.
+                nearby_cells = self.env.grid.get_nearby_cells(preCarrying.cur_pos)
+
+                # If the dropped object is not nearby another other objects (excluding walls and the agent),
+                # this instruction is verifed as success
+                for cell in nearby_cells:
+                    # If there is another object next to the dropped object,
+                    # the instruction is not successful.
+                    if cell and cell.type != 'wall':
+                        if self.strict:
+                            return 'failure'
+                        else:
+                            return 'continue'
+            
+                return 'success'
 
         return 'continue'
 
