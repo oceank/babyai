@@ -1358,7 +1358,8 @@ class Level_DropNextLocalR1Dist(RoomGridLevel):
 
         self.instrs = DropNextInstr(
             obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
-            obj_fixed = ObjDesc(next_to_obj.type, next_to_obj.color)
+            obj_fixed = ObjDesc(next_to_obj.type, next_to_obj.color),
+            initial_carried_world_obj = self.carrying
         )
 
 class Level_DropNextNothingLocalR1Dist(RoomGridLevel):
@@ -1387,7 +1388,7 @@ class Level_DropNextNothingLocalR1Dist(RoomGridLevel):
         self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
 
         self.instrs = DropNextNothingInstr(
-            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            initial_carried_world_obj = self.carrying,
             obj_to_drop = ObjDesc(carried_obj_type, carried_obj_color)
         )
 

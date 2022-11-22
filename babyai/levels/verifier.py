@@ -87,13 +87,13 @@ class LowlevelInstrSet:
                     open_instrs.append(OpenInstr(obj))
                     pass_instrs.append(PassInstr(obj))
                 else:
-                    drop_instrs.append(DropNextNothingInstr(obj_carried=None, obj_to_drop=obj))
+                    drop_instrs.append(DropNextNothingInstr(initial_carried_world_obj=None, obj_to_drop=obj))
                     pickup_instrs.append(PickupInstr(obj))
                     if obj_type == 'box':
                         open_instrs.append(OpenBoxInstr(obj))
 
                 goto_instrs.append(GoToInstr(obj))
-                drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj))
+                drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initial_carried_world_obj=None))
 
         subgoal_instructions = open_instrs
         subgoal_instructions.extend(pass_instrs)
@@ -104,13 +104,18 @@ class LowlevelInstrSet:
         return subgoal_instructions
 
     def reset_valid_instructions(self, env):
-        self.initial_valid_instructions = self.filter_valid_instructions(self.all_instructions, env)
+        self.initial_valid_instructions = self.filter_valid_instructions(self.all_instructions, env, need_reset=True)
         self.current_valid_instructions = self.initial_valid_instructions.copy()
 
-    def filter_valid_instructions(self, instructions, env):
+    def filter_valid_instructions(self, instructions, env, need_reset=False):
         valid_instructions = []
         for instr in instructions:
-            instr.reset_verifier(env)
+            if need_reset:
+                instr.reset_verifier(env)
+            else:
+                instr.desc.find_matching_objs(env, use_location=True)
+                if isinstance(instr, PickupInstr):
+                    instr.preCarrying = None
 
             is_valid = False
             if isinstance(instr, DropNextNothingInstr):
@@ -594,10 +599,16 @@ class DropNextInstr(ActionInstr):
     eg: put the red ball next to the blue key
     """
 
-    def __init__(self, obj_carried, obj_fixed, strict=False):
+    """
+    Parameters:
+        obj_carried: ObjDesc instance. used to differentiate the usages between low-level instr and mission goal
+        carrying: WorldObj instance. used in gen_mission() to indicate the carried obj when the mission starts
+    """
+    def __init__(self, obj_carried, obj_fixed, initial_carried_world_obj=None, strict=False):
         super().__init__()
         assert not obj_carried or obj_carried.type != 'door'
         self.initially_carried_obj = obj_carried
+        self.initially_carried_world_obj = initial_carried_world_obj
         self.desc = obj_fixed # the target object that the agent needs to put its carried one next to 
         self.strict = strict
 
@@ -610,8 +621,8 @@ class DropNextInstr(ActionInstr):
     def reset_verifier(self, env):
         super().reset_verifier(env)
 
-        if self.initially_carried_obj is not None:
-            self.preCarrying = WorldObj.decode(OBJECT_TO_IDX[self.initially_carried_obj.type], COLOR_TO_IDX[self.initially_carried_obj.color], 0)
+        if self.initially_carried_world_obj is not None:
+            self.preCarrying = self.initially_carried_world_obj
         else:
             self.preCarrying = None
 
@@ -648,13 +659,13 @@ class DropNextNothingInstr(ActionInstr):
     #   obj_carried is None, obj_to_drop is not None
     # Case 2 (used when initializing a mission in DropNextNothingLocal environment)
     #   obj_carried == obj_to_drop, they are not None
-    def __init__(self, obj_carried, obj_to_drop, strict=False):
+    def __init__(self, initial_carried_world_obj, obj_to_drop, strict=False):
         super().__init__()
-        assert not obj_carried or obj_carried.type != 'door'
+        assert not initial_carried_world_obj or initial_carried_world_obj.type != 'door'
         assert obj_to_drop and obj_to_drop.type != 'door'
 
         self.desc = obj_to_drop
-        self.preCarrying = obj_carried
+        self.initial_carried_world_obj=initial_carried_world_obj
 
         self.strict = strict
 
@@ -673,6 +684,11 @@ class DropNextNothingInstr(ActionInstr):
 
     def reset_verifier(self, env):
         super().reset_verifier(env)
+
+        if self.initial_carried_world_obj is not None:
+            self.preCarrying = self.initial_carried_world_obj
+        else:
+            self.preCarrying = None
 
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
