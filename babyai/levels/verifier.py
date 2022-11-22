@@ -54,10 +54,9 @@ class LowlevelInstrSet:
 
     def generate_all_instructions(self):
         """
-        6 types of low-level instructions (subgoals)
+        7 types of low-level instructions (subgoals)
         OpenDoorLocal:
             If the door is closed, open it; 
-            If the door is locked and agent the right key, unlock and open the door.
         PassDoorLocal:
             The door is open and unblocked on both sides.
         PickupLocal:
@@ -65,12 +64,15 @@ class LowlevelInstrSet:
         DropNextLocal:
             The drop location is next to an object, key, box, ball.
             Can only drop onto an 'empty' cell.
+        DropNextNothingLocal:
+            There is no object (box, ball, key and door) nearby the drop location.
         OpenBoxLocal:
             open the box and uncover the object inside it if there is one.
             The opened box will be removed from the environment grid.
         GoToLocal:
             Only verify when the performed action is 'left', 'right', or 'forward'.
 
+        No difference between 'a' and 'the' 
         """
 
         subgoal_instructions = []
@@ -114,8 +116,6 @@ class LowlevelInstrSet:
                 instr.reset_verifier(env)
             else:
                 instr.desc.find_matching_objs(env, use_location=True)
-                if isinstance(instr, PickupInstr):
-                    instr.preCarrying = None
 
             is_valid = False
             if isinstance(instr, DropNextNothingInstr):
@@ -128,6 +128,8 @@ class LowlevelInstrSet:
             if is_valid:
                 instr.instr_desc = instr.surface(env)
                 valid_instructions.append(instr)
+                if isinstance(instr,  PickupInstr):
+                    instr.preCarrying = env.carrying
               
         return valid_instructions
 
