@@ -43,16 +43,54 @@ class LowlevelInstrSet:
     The set of all low-level instructions and its valid version for a specific environment.
     Each instruction corresponds to one low-level subgoal.
     Each instruction is an interaction between the agent and one object.
+    The object is an instance of ObjDesc.
     """
+
+
 
     def __init__(self, object_types=None, object_colors=None):
         self.object_types = object_types or OBJ_TYPES
         self.object_colors = object_colors or COLOR_NAMES
-        self.all_instructions = self.generate_all_instructions()
-        self.initial_valid_instructions = []
-        self.current_valid_instructions = []
+        self.num_subgoals_info = {
+            "total": 0,
+            "open_door": 0,
+            "pass_door": 0,
+            "open_box": 0,
+            "go_to": 0,
+            "pick_up": 0,
+            "drop_next_to": 0,
+            "drop_next_to_nothing": 0
+        }
 
-    def generate_all_instructions(self):
+        self.all_subgoals = self.generate_all_subgoals()
+        self.initial_valid_subgoals = []
+        self.current_valid_subgoals = []
+
+    def generate_instr_desc(self, instr, acticle='a'):
+        assert instr.desc and instr.desc.type and instr.desc.color
+        desc = instr.desc
+        obj_desc = acticle + " " + desc.color + " " + desc.type
+
+        if isinstance(instr, OpenInstr): # OpenDoorLocal
+            instr.instr_desc = 'open ' + obj_desc
+        elif isinstance(instr, PassInstr): # PassDoorLocal
+            instr.instr_desc = 'pass ' + obj_desc
+        elif isinstance(instr, OpenBoxInstr): # OpenBoxLocal
+            instr.instr_desc = 'open ' + obj_desc
+        elif isinstance(instr, GoToInstr): # GoToLocal
+            instr.instr_desc = 'go to ' + obj_desc
+        elif isinstance(instr, PickupInstr): # PickupLocal
+            instr.instr_desc = 'pick up ' + obj_desc
+        elif isinstance(instr, DropNextInstr): # DropNextLocal
+            instr.instr_desc = 'drop next to ' + obj_desc
+        elif isinstance(instr, DropNextNothingInstr): # DropNextNothingLocal
+            instr.instr_desc = 'drop ' + obj_desc
+        else:
+            err_msg = f"Instruction type ({type(instr)}) of a non-supported low-level task."
+            raise TypeError(err_msg)
+
+
+    def generate_all_subgoals(self):
         """
         7 types of low-level instructions (subgoals)
         OpenDoorLocal:
@@ -76,42 +114,62 @@ class LowlevelInstrSet:
         """
 
         subgoal_instructions = []
-        open_instrs = []
+        open_door_instrs = []
+        open_box_instrs = []
         pickup_instrs = []
         goto_instrs = []
-        pass_instrs = []
-        drop_instrs = []
+        pass_door_instrs = []
+        drop_nextto_instrs = []
+        drop_nextto_nothing_instrs = []
 
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
                 if obj_type == 'door':
-                    open_instrs.append(OpenInstr(obj))
-                    pass_instrs.append(PassInstr(obj))
+                    open_door_instrs.append(OpenInstr(obj))
+                    pass_door_instrs.append(PassInstr(obj))
                 else:
-                    drop_instrs.append(DropNextNothingInstr(initial_carried_world_obj=None, obj_to_drop=obj))
+                    drop_nextto_nothing_instrs.append(DropNextNothingInstr(initial_carried_world_obj=None, obj_to_drop=obj))
                     pickup_instrs.append(PickupInstr(obj))
                     if obj_type == 'box':
-                        open_instrs.append(OpenBoxInstr(obj))
+                        open_box_instrs.append(OpenBoxInstr(obj))
 
                 goto_instrs.append(GoToInstr(obj))
-                drop_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initial_carried_world_obj=None))
+                drop_nextto_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initial_carried_world_obj=None))
 
-        subgoal_instructions = open_instrs
-        subgoal_instructions.extend(pass_instrs)
-        subgoal_instructions.extend(goto_instrs)
+        subgoal_instructions = open_door_instrs
+        subgoal_instructions.extend(pass_door_instrs)
+        subgoal_instructions.extend(open_box_instrs)
         subgoal_instructions.extend(pickup_instrs)
-        subgoal_instructions.extend(drop_instrs)
+        subgoal_instructions.extend(goto_instrs)
+        subgoal_instructions.extend(drop_nextto_instrs)
+        subgoal_instructions.extend(drop_nextto_nothing_instrs)
 
-        return subgoal_instructions
+        self.num_subgoals_info['open_door'] = len(open_door_instrs)
+        self.num_subgoals_info['pass_door'] = len(pass_door_instrs)
+        self.num_subgoals_info['open_box']  = len(open_box_instrs)
+        self.num_subgoals_info['go_to']     = len(goto_instrs)
+        self.num_subgoals_info['pick_up']   = len(pickup_instrs)
+        self.num_subgoals_info['drop_next_to'] = len(drop_nextto_instrs)
+        self.num_subgoals_info['drop_next_to_nothing'] = len(drop_nextto_nothing_instrs)
+        self.num_subgoals_info['total'] = len(subgoal_instructions)
 
-    def reset_valid_instructions(self, env):
-        self.initial_valid_instructions = self.filter_valid_instructions(self.all_instructions, env, need_reset=True)
-        self.current_valid_instructions = self.initial_valid_instructions.copy()
+        subgoals = []
+        for subgoal_idx, subgoal_instr in enumerate(subgoal_instructions):
+            self.generate_instr_desc(subgoal_instr, acticle='a')
+            subgoals.append((subgoal_idx, subgoal_instr))
 
-    def filter_valid_instructions(self, instructions, env, need_reset=False):
-        valid_instructions = []
-        for instr in instructions:
+        return subgoals
+
+    def reset_valid_subgoals(self, env):
+        self.initial_valid_subgoals = self.filter_valid_subgoals(self.all_subgoals, env, need_reset=True)
+        self.current_valid_subgoals = self.initial_valid_subgoals.copy()
+
+    # subgoals: [(subgoal_idx, subgoal_instr)]
+    def filter_valid_subgoals(self, subgoals, env, need_reset=False):
+        valid_subgoals = []
+        for subgoal in subgoals:
+            instr = subgoal[1]
             if need_reset:
                 instr.reset_verifier(env)
             else:
@@ -126,33 +184,38 @@ class LowlevelInstrSet:
                 is_valid = len(instr.desc.obj_set) > 0
 
             if is_valid:
-                instr.instr_desc = instr.surface(env)
-                valid_instructions.append(instr)
                 if isinstance(instr,  PickupInstr):
                     instr.preCarrying = env.carrying
+                valid_subgoals.append(subgoal)
+
               
-        return valid_instructions
+        return valid_subgoals
 
-    def update_current_valid_instructions(self, env):
-        self.current_valid_instructions = self.filter_valid_instructions(self.initial_valid_instructions, env)
+    def update_current_valid_subgoals(self, env):
+        self.current_valid_subgoals = self.filter_valid_subgoals(self.initial_valid_subgoals, env)
 
-    def check_completed_instructions(self, action, env):
+    def check_completed_subgoals(self, action, env):
         """
         Check if any valid low-level instructions are completed after performing the 'action'
         """
-        msg = []
-        for instruction in self.current_valid_instructions:
-            result = instruction.verify(action)
+        completed_subgoals = []
+        for subgoal_idx, subgoal_instr in self.current_valid_subgoals:
+            result = subgoal_instr.verify(action)
             if result == 'success':
-                msg.append(instruction.instr_desc)
+                completed_subgoals.append(subgoal_idx)
 
         # When the grid is changed, the valid subgoal instructions need to be updated
         if env.grid_changed:
-            self.update_current_valid_instructions(env)
+            self.update_current_valid_subgoals(env)
 
+        return completed_subgoals     
+
+    def get_completed_subgoals_msg(self, completed_subgoals):
+        msg = []
+        for idx in completed_subgoals:
+            msg.append(f"[SG{idx}] "+self.all_subgoals[idx][1].instr_desc)
         msg = ". ".join(msg)
-        return msg        
-
+        return msg 
 
 class ObjDesc:
     """
@@ -618,7 +681,7 @@ class DropNextInstr(ActionInstr):
         carried_obj_desc = ""
         if self.initially_carried_obj:
             carried_obj_desc = " " + self.initially_carried_obj.surface(env, is_carried=True)
-        return 'put' + carried_obj_desc+ ' next to ' + self.desc.surface(env)
+        return 'drop' + carried_obj_desc+ ' next to ' + self.desc.surface(env)
 
     def reset_verifier(self, env):
         super().reset_verifier(env)
@@ -682,7 +745,7 @@ class DropNextNothingInstr(ActionInstr):
     # The issue can be solved by supplementing the 'put' grammar in BabyAI language
     # and updating the BOT.
     def surface(self, env):
-        return 'put ' + self.desc.surface(env, is_carried=True)
+        return 'drop ' + self.desc.surface(env, is_carried=True)
 
     def reset_verifier(self, env):
         super().reset_verifier(env)

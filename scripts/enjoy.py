@@ -107,11 +107,11 @@ done = True
 action = None
 
 lowlevel_instr_set = LowlevelInstrSet()
-print(f"Total number of subgoals: {len(lowlevel_instr_set.all_instructions)}")
-lowlevel_instr_set.reset_valid_instructions(env)
-print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
+print(f"Total number of subgoals: {len(lowlevel_instr_set.all_subgoals)}")
+lowlevel_instr_set.reset_valid_subgoals(env)
+print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_subgoals)}")
 if check_subgoal_completion: # temporary; for demo agent
-    expected_completed_subgoals = ""
+    expected_completed_subgoals = []
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -173,9 +173,10 @@ def keyDownCb(event):
         obs, reward, done, _ = env.step(action)
 
         msg = f"[step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}:"
-        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.check_completed_instructions(action, env)
+        completed_subgoals = lowlevel_instr_set.check_completed_subgoals(action, env)
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
         if check_subgoal_completion:
-            msg += "\n\t [expected completed] " + expected_completed_subgoals
+            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals)
         print(msg)
 
         step += 1
@@ -200,8 +201,8 @@ def keyDownCb(event):
             if use_subgoals:
                 agent.reinitialize_mission(env)
 
-            lowlevel_instr_set.reset_valid_instructions(env)
-            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
+            lowlevel_instr_set.reset_valid_subgoals(env)
+            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_subgoals)}")
 
         if use_subgoals and (done or is_subgoal_completed):
             print(f"[Please choose the next subgoal:]")
@@ -245,10 +246,11 @@ while True:
         else:
             msg = "step: {}, mission: {}, action: {}".format(
                 step, obs['mission'], env.get_action_name(action))
-        
-        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.check_completed_instructions(action, env)
+
+        completed_subgoals = lowlevel_instr_set.check_completed_subgoals(action, env)
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
         if check_subgoal_completion:
-            msg += "\n\t [expected completed] " + expected_completed_subgoals
+            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals)
         print(msg)
 
         if done:
@@ -278,8 +280,8 @@ while True:
             agent.on_reset()
             step = 0
 
-            lowlevel_instr_set.reset_valid_instructions(env)
-            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
+            lowlevel_instr_set.reset_valid_subgoals(env)
+            print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_subgoals)}")
         else:
             if use_subgoals and is_subgoal_completed:
                 print(f"[Please choose the next subgoal:]")

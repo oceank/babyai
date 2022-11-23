@@ -74,7 +74,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
 
     # Initialize the set of instructions for low-level tasks
     lowlevel_instr_set = LowlevelInstrSet()
-    # print(f"Total number of subgoals: {len(lowlevel_instr_set.all_instructions)}")
+    # print(f"Total number of subgoals: {len(lowlevel_instr_set.all_subgoals)}")
 
     # Generate environment
     env = gym.make(args.env)
@@ -86,6 +86,10 @@ def generate_demos(n_episodes, valid, seed, shift=0):
     checkpoint_time = time.time()
 
     just_crashed = False
+    # idx 0: count of time steps when no subgoal is completed
+    # idx 1: count of time steps when one subgoal is completed
+    # idx 2: count of time steps when >1 subgoals is completed
+    completed_subgoals_counts = [0, 0, 0]
     while True:
         if len(demos) == n_episodes:
             break
@@ -99,8 +103,8 @@ def generate_demos(n_episodes, valid, seed, shift=0):
         obs = env.reset()
         agent.on_reset()
 
-        lowlevel_instr_set.reset_valid_instructions(env)
-        # print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_instructions)}")
+        lowlevel_instr_set.reset_valid_subgoals(env)
+        # print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_subgoals)}")
 
         actions = []
         mission = obs["mission"]
@@ -116,7 +120,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
                 new_obs, reward, done, _ = env.step(action)
                 agent.analyze_feedback(reward, done)
 
-                current_completed_subgoals = lowlevel_instr_set.check_completed_instructions(action, env)
+                current_completed_subgoals = lowlevel_instr_set.check_completed_subgoals(action, env)
 
                 actions.append(action)
                 images.append(obs['image'])
@@ -142,12 +146,29 @@ def generate_demos(n_episodes, valid, seed, shift=0):
             logger.exception("error while generating demo #{}".format(len(demos)))
             continue
 
+        for time_step, csg in enumerate(completed_subgoals):
+            if len(csg) == 0:
+                completed_subgoals_counts[0] += 1
+            elif len(csg) == 1:
+                completed_subgoals_counts[1] += 1
+            else: # len(csg) > 1
+                completed_subgoals_counts[2] += 1
+                msg_csg = lowlevel_instr_set.get_completed_subgoals_msg(csg)
+                print(f"\t[demo #{len(demos) - 1}, t={time_step}] {msg_csg}")
+    
         if len(demos) and len(demos) % args.log_interval == 0:
+            
             now = time.time()
             demos_per_second = args.log_interval / (now - checkpoint_time)
             to_go = (n_episodes - len(demos)) / demos_per_second
-            logger.info("demo #{}, {:.3f} demos per second, {:.3f} seconds to go".format(
-                len(demos) - 1, demos_per_second, to_go))
+
+            total_time_steps = sum(completed_subgoals_counts)
+            csg0 = completed_subgoals_counts[0]/total_time_steps
+            csg1 = completed_subgoals_counts[1]/total_time_steps
+            csg2 = completed_subgoals_counts[2]/total_time_steps
+
+            logger.info("demo #{}, {:.3f} demos per second, {:.3f} seconds to go, 0sg({:.3f}), 1sg({:.3f}), >1sg({:.3f})".format(
+                len(demos) - 1, demos_per_second, to_go, csg0, csg1, csg2))
             checkpoint_time = now
 
         # Save demonstrations
