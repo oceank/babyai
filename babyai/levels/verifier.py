@@ -210,10 +210,13 @@ class LowlevelInstrSet:
 
         return completed_subgoals     
 
-    def get_completed_subgoals_msg(self, completed_subgoals):
+    def get_completed_subgoals_msg(self, completed_subgoals, debug=False):
         msg = []
         for idx in completed_subgoals:
-            msg.append(f"[SG{idx}] "+self.all_subgoals[idx][1].instr_desc)
+            if debug:
+                msg.append(f"[SG{idx}] "+self.all_subgoals[idx][1].instr_desc)
+            else:
+                msg.append(self.all_subgoals[idx][1].instr_desc)
         msg = ". ".join(msg)
         return msg 
 

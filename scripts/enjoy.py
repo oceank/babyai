@@ -174,9 +174,9 @@ def keyDownCb(event):
 
         msg = f"[step {step}], mission: {obs['mission']}, action: {env.get_action_name(action)}:"
         completed_subgoals = lowlevel_instr_set.check_completed_subgoals(action, env)
-        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals, debug=True)
         if check_subgoal_completion:
-            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals)
+            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals, debug=True)
         print(msg)
 
         step += 1
@@ -248,9 +248,9 @@ while True:
                 step, obs['mission'], env.get_action_name(action))
 
         completed_subgoals = lowlevel_instr_set.check_completed_subgoals(action, env)
-        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
+        msg += "\n\t [subgoals completed] " + lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals, debug=True)
         if check_subgoal_completion:
-            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals)
+            msg += "\n\t [expected completed] " + lowlevel_instr_set.get_completed_subgoals_msg(expected_completed_subgoals, debug=True)
         print(msg)
 
         if done:
