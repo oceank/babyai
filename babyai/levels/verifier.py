@@ -137,7 +137,8 @@ class LowlevelInstrSet:
                 goto_instrs.append(GoToInstr(obj))
                 drop_nextto_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initial_carried_world_obj=None))
 
-        subgoal_instructions = open_door_instrs
+        subgoal_instructions = []
+        subgoal_instructions.extend(open_door_instrs)
         subgoal_instructions.extend(pass_door_instrs)
         subgoal_instructions.extend(open_box_instrs)
         subgoal_instructions.extend(pickup_instrs)
@@ -217,7 +218,7 @@ class LowlevelInstrSet:
                 msg.append(f"[SG{idx}] "+self.all_subgoals[idx][1].instr_desc)
             else:
                 msg.append(self.all_subgoals[idx][1].instr_desc)
-        msg = ". ".join(msg)
+        msg = ", ".join(msg) + "."
         return msg 
 
 class ObjDesc:
