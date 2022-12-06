@@ -146,9 +146,9 @@ else:
 
 env = gym.make(args.env)
 image_preproc = RawImagePreprocessor()
-
+visual_observation_bow_flat_dim=147
 image_conv = nn.Sequential(*[
-            ImageBOWEmbedding(env.observation_space['image'], vlm.wte.embedding_dim),
+            ImageBOWEmbedding(visual_observation_bow_flat_dim, vlm.wte.embedding_dim),
             nn.Conv2d(
                 in_channels=vlm.wte.embedding_dim, out_channels=vlm.wte.embedding_dim,
                 kernel_size=(3, 3), stride=1, padding=1),
@@ -179,7 +179,7 @@ total_demos = len(demos)
 demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio)
 
 
-def get_image_embedding(image_conv, obss):
+def get_image_embedding(image_conv, image_preproc, obss):
     batch_size = 1
     images = image_preproc(obss, device=device)
     images = images.unsqueeze(dim=0)
@@ -218,16 +218,18 @@ for epoch_i in range(0, args.epochs):
     for demo_id in randmized_demo_ids:
         demo = demos_train[demo_id]
         time_step = 0
-        obss = ()
+        obss = []
         csg_texts = []
         csg_time_steps = []
         pre_csg_time_step = -1
-        for (obs, _, _, completed_subgoals) in demo[0]:
-            obss = obss + (np.expand_dims(obs['image'], axis=0), )
+        for (obs, _, _, completed_subgoals) in demo[:-2]:
+            if not args.abstract_history:
+                obss.append(obs)
             if len(completed_subgoals):
                 focused_time_steps = time_step-pre_csg_time_step
                 if args.abstract_history:
                     focused_time_steps = 1
+                    obss.append(obs)
                 csg_text = "<image>"*focused_time_steps+lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
                 csg_texts.append(csg_text)
                 csg_time_steps.append(time_step)
@@ -238,8 +240,8 @@ for epoch_i in range(0, args.epochs):
         pre_csg_time_steps.extend(csg_time_steps[:-1])
 
         csg_texts_tokens = tokenizer(csg_texts, padding=True, return_tensors="pt")
-        csg_tokens_len = csg_texts_tokens.sum(dim=-1)
-        img_embeds = get_image_embedding(image_conv, np.concatenate(obss, axis=0))
+        csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
+        img_embeds = get_image_embedding(image_conv, image_preproc, obss)
         num_csgs = len(csg_time_steps)
 
         time_step = 0
