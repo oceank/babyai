@@ -93,6 +93,27 @@ parser.add_argument("--sample-next-token", action="store_true", default=False,
 
 args = parser.parse_args()
 
+# Load the demonstrations and split it into training, validation and testing partitions
+# "--env", "BabyAI-UnlockLocalR2Dist-v0",
+# "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
+demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
+demos = utils.load_demos(demos_path)
+training_status_path = demos_path[:-4] + "_training_status.txt"
+# demos: list of tuples
+#   tuple: (obs, action, done, completed_subgoals, reward, seed)
+#       obs: {'image':, 'direction':, 'mission':}
+#       action: an integer
+#       done: true or false
+#       completed_subgoals: [list of completed subgoals' indices at timestep t]
+#       reward: a real number between 0 and 1
+#       seed: an integer
+demos = utils.demos.transform_demos(demos, check_subgoal_completion=True)
+test_samples_ratio = 0.2 # episode-wise
+total_demos = len(demos)
+demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio)
+
+
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 vlm = None
@@ -102,9 +123,12 @@ if args.vlm_arc == "Flamingo":
     # gpt2: 12 transformer layers
     # distilgpt2: 6 transformer layers
 
-    print(f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===")
-    print(f"[Setup] Use VLM to help the anget to explore the grid world")
-    print(f"[Setup] Create a tokenizer and {lang_model_name} language model")
+    msg = f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===" + "\n"
+    msg += f"[Setup] Use VLM to help the anget to explore the grid world" + "\n"
+    msg += f"[Setup] Create a tokenizer and {lang_model_name} language model"
+    print(msg)
+    with open(training_status_path, 'a') as f:
+        f.write(msg + "\n")
 
     tokenizer = GPT2Tokenizer.from_pretrained(lang_model_name, return_dict=True)
     tokenizer.pad_token = tokenizer.eos_token # pad token
@@ -124,7 +148,10 @@ if args.vlm_arc == "Flamingo":
     #
     vit = None
 
-    print(f"[Setup] Create a Flamingo Model")
+    msg = f"[Setup] Create a Flamingo Model"
+    print(msg)
+    with open(training_status_path, 'a') as f:
+        f.write(msg + "\n")
     vlm = FlamingoGPT2(
         lang_model=lang_model,       # pretrained language model GPT2 with a language header
         dim = dim_lang_embeds,       # dimensions of the embedding
@@ -161,24 +188,6 @@ image_conv = nn.Sequential(*[
         ])
 image_conv.apply(initialize_parameters)
 
-# Load the demonstrations and split it into training, validation and testing partitions
-# "--env", "BabyAI-UnlockLocalR2Dist-v0",
-# "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
-demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
-demos = utils.load_demos(demos_path)
-# demos: list of tuples
-#   tuple: (obs, action, done, completed_subgoals, reward, seed)
-#       obs: {'image':, 'direction':, 'mission':}
-#       action: an integer
-#       done: true or false
-#       completed_subgoals: [list of completed subgoals' indices at timestep t]
-#       reward: a real number between 0 and 1
-#       seed: an integer
-demos = utils.demos.transform_demos(demos, check_subgoal_completion=True)
-test_samples_ratio = 0.2 # episode-wise
-total_demos = len(demos)
-demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio)
-
 
 def get_image_embedding(image_conv, image_preproc, obss, device):
     batch_size = 1
@@ -206,10 +215,14 @@ optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
 vlm.to(device)
 image_conv.to(device)
 for epoch_i in range(0, args.epochs):
-    print('======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs))
+    msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
+    with open(training_status_path, 'a') as f:
+                f.write(msg + "\n")
+    print(msg)
     t0 = time.time()
     total_train_loss = 0
     vlm.train()
+    image_conv.train()
     tr_loss=[]
 
     randmized_demo_ids = np.arange(0, len(demos_train))
@@ -248,10 +261,14 @@ for epoch_i in range(0, args.epochs):
         for key in csg_texts_tokens:
             csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
         csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
-        img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
+        with amp.autocast(enabled=True):
+            img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
         num_csgs = len(csg_time_steps)
 
-        print(f"[{e_idx}][demo {demo_id}] {num_csgs}/{time_step - 1}")
+        msg = f"[{e_idx}][demo {demo_id}] {num_csgs}/{time_step - 1}"
+        print(msg)
+        with open(training_status_path, 'a') as f:
+            f.write(msg + "\n")
 
         time_step = 0
         loss = None
@@ -320,7 +337,10 @@ for epoch_i in range(0, args.epochs):
 
         loss /= num_csgs
         tr_loss.append(loss.item())
-        print(f"\t{loss.item()}")
+        msg = f"\t{loss.item()}"
+        print(msg)
+        with open(training_status_path, 'a') as f:
+            f.write(msg + "\n")
         #print(f"[{e_idx}][demo {demo_id}] {loss.item()}")
         e_idx += 1
 
@@ -339,8 +359,13 @@ for epoch_i in range(0, args.epochs):
     min_train_loss = np.min(tr_loss) 
     training_time = format_time(time.time() - t0)
     gc.collect()
-    print("[epoch {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss))
-    print("Training epoch took: {:}".format(training_time))
+    msg = "[epoch {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss) + "\n"
+    msg += "Training epoch took: {:}".format(training_time)
+    print(msg)
+    with open(training_status_path, 'a') as f:
+        f.write(msg + "\n")
+
+
 
     '''
     t0 = time.time()
