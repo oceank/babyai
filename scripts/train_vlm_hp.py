@@ -386,8 +386,8 @@ for epoch_i in range(0, args.epochs):
     
     epoch_train_losses[epoch_i] = avg_train_loss
     np.save(train_loss_path, epoch_train_losses)
-    torch.save(image_conv_model_path, bow_image_conv_encoder)
-    torch.save(vlm_model_path, vlm)
+    torch.save(bow_image_conv_encoder, image_conv_model_path)
+    torch.save(vlm, vlm_model_path)
 
     avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
     training_time = format_time(time.time() - t0)
@@ -521,6 +521,6 @@ for epoch_i in range(0, args.epochs):
     epoch_test_losses[epoch_i] = avg_test_loss
     #np.save(train_loss_path, epoch_train_losses)
     np.save(test_loss_path, epoch_test_losses)
-    #torch.save(image_conv_model_path, bow_image_conv_encoder)
-    #torch.save(vlm_model_path, vlm)
+    #torch.save(bow_image_conv_encoder, image_conv_model_path)
+    #torch.save(vlm, vlm_model_path)
 
