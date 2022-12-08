@@ -193,7 +193,7 @@ else:
 
 class BowImageConvEncoder(nn.Module):
     def __init__(self, visual_observation_bow_flat_dim, embedding_dim, image_preproc, device):
-        super.__init__()
+        super().__init__()
         self.visual_observation_bow_flat_dim = visual_observation_bow_flat_dim
         self.embedding_dim = embedding_dim
         self.image_preproc = image_preproc
