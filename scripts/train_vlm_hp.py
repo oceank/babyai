@@ -340,8 +340,6 @@ for epoch_i in range(0, args.epochs):
             # Calculate the loss and update the model
             with amp.autocast(enabled=True):
                 result = vlm(**vlm_input, return_dict=True)
-                gc.collect()
-                torch.cuda.empty_cache()
 
                 loss_csg = result['loss']
                 if loss:
@@ -377,8 +375,6 @@ for epoch_i in range(0, args.epochs):
         optimizer.step()
 
         processed_demos_count += 1
-        gc.collect()
-        torch.cuda.empty_cache()
 
         if args.log_interval!=0 and processed_demos_count%args.log_interval == 0:
             avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
@@ -480,8 +476,6 @@ for epoch_i in range(0, args.epochs):
             # Calculate the loss and update the model
             with torch.no_grad():
                 result = vlm(**vlm_input, return_dict=True)
-                gc.collect()
-                torch.cuda.empty_cache()
 
                 loss_csg = result['loss']
                 if loss:
@@ -513,8 +507,6 @@ for epoch_i in range(0, args.epochs):
         loss /= num_csgs
         te_loss.append(loss.item())
 
-        gc.collect()
-        torch.cuda.empty_cache()
 
 
     avg_test_loss, std_test_loss, max_test_loss, min_test_loss = get_stat(te_loss) 
