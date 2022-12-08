@@ -60,7 +60,8 @@ parser.add_argument("--epochs", type=int, default=4,
                     help="number of epochs for training (default: 4)")
 parser.add_argument("--abstract-history", action="store_true", default=False,
                     help="Allows you to switch between the full history and the abstraction of the full history")
-
+parser.add_argument("--log-interval", type=int, default=10,
+                    help="number of used demonstrations between two logging events during training (default: 10, 0 means no saving)")
 
 '''
 parser.add_argument("--discount", type=float, default=0.99,
@@ -96,14 +97,27 @@ args = parser.parse_args()
 # Load the demonstrations and split it into training, validation and testing partitions
 # "--env", "BabyAI-UnlockLocalR2Dist-v0",
 # "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
+model_name_prefix = args.demos_name
+experiment_datetime = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+if args.abstract_history:
+    model_name_prefix += "_abstract_" + experiment_datetime
+else:
+    model_name_prefix += "_full_" + experiment_datetime
+
+log_dir = os.path.join(utils.storage_dir(), "logs", model_name_prefix)
+model_dir = os.path.join(utils.storage_dir(), "models", model_name_prefix)
+utils.create_folders_if_necessary(log_dir)
+utils.create_folders_if_necessary(model_dir)
+
 demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
 demos = utils.load_demos(demos_path)
-training_status_path = demos_path[:-4] + "_training_status"
-suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-if args.abstract_history:
-    training_status_path += "_abstract_" + suffix + ".txt"
-else:
-    training_status_path += "_full_" + suffix + ".txt"
+training_status_path = os.path.join(log_dir, "training_status.txt")
+vlm_model_path = os.path.join(model_dir, "vlm.pt")
+image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
+demos_train_set_path = os.path.join(model_dir, "trainset.pkl") 
+demos_test_set_path = os.path.join(model_dir, "testset.pkl") 
+
+
 # demos: list of tuples
 #   tuple: (obs, action, done, completed_subgoals, reward, seed)
 #       obs: {'image':, 'direction':, 'mission':}
@@ -116,7 +130,8 @@ demos = utils.demos.transform_demos(demos, check_subgoal_completion=True)
 test_samples_ratio = 0.2 # episode-wise
 total_demos = len(demos)
 demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio)
-
+utils.save_demos(demos_train, demos_train_set_path)
+utils.save_demos(demos_test, demos_test_set_path)
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,7 +146,7 @@ if args.vlm_arc == "Flamingo":
     msg = f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===" + "\n"
     msg += f"[Setup] Use VLM to help the anget to explore the grid world" + "\n"
     msg += f"[Setup] Create a tokenizer and {lang_model_name} language model"
-    print(msg)
+    #print(msg)
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
@@ -154,7 +169,7 @@ if args.vlm_arc == "Flamingo":
     vit = None
 
     msg = f"[Setup] Create a Flamingo Model"
-    print(msg)
+    #print(msg)
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
     vlm = FlamingoGPT2(
@@ -205,6 +220,9 @@ def get_image_embedding(image_conv, image_preproc, obss, device):
     image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
     return image_embeds
 
+def get_stat(arr):
+    return np.mean(arr), np.std(arr), np.max(arr), np.min(arr)
+
 lowlevel_instr_set = LowlevelInstrSet()
 
 # Train and evaluate
@@ -219,20 +237,25 @@ parameters = list(vlm.parameters()) + list(image_conv.parameters())
 optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
 vlm.to(device)
 image_conv.to(device)
+epoch_train_losses = np.zeros(args.epochs)
+epoch_test_losses = np.zeros(args.epochs)
+train_loss_path = os.path.join(model_dir, "train_loss.npy") 
+test_loss_path = os.path.join(model_dir, "test_loss.npy") 
+
 for epoch_i in range(0, args.epochs):
     msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
     with open(training_status_path, 'a') as f:
-                f.write(msg + "\n")
-    print(msg)
+        f.write(msg + "\n")
+
     t0 = time.time()
-    total_train_loss = 0
+
     vlm.train()
     image_conv.train()
     tr_loss=[]
 
     randmized_demo_ids = np.arange(0, len(demos_train))
     randmized_demo_ids = np.random.permutation(randmized_demo_ids)
-    e_idx = 0
+
     for demo_id in randmized_demo_ids:
         demo = demos_train[demo_id]
         time_step = 1
@@ -269,11 +292,6 @@ for epoch_i in range(0, args.epochs):
         with amp.autocast(enabled=True):
             img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
         num_csgs = len(csg_time_steps)
-
-        msg = f"[{e_idx}][demo {demo_id}] {num_csgs}/{time_step - 1}"
-        print(msg)
-        with open(training_status_path, 'a') as f:
-            f.write(msg + "\n")
 
         time_step = 0
         loss = None
@@ -338,16 +356,8 @@ for epoch_i in range(0, args.epochs):
 
             vlm_input['media_locations'][0, current_media_locations] = True
 
-
-
         loss /= num_csgs
         tr_loss.append(loss.item())
-        msg = f"\t{loss.item()}"
-        print(msg)
-        with open(training_status_path, 'a') as f:
-            f.write(msg + "\n")
-        #print(f"[{e_idx}][demo {demo_id}] {loss.item()}")
-        e_idx += 1
 
         # update the Flamingo model
         optimizer.zero_grad()
@@ -357,34 +367,34 @@ for epoch_i in range(0, args.epochs):
         gc.collect()
         torch.cuda.empty_cache()
 
+        if args.log_interval!=0 and demo_id%args.log_interval == 0 and demo_id != 0:
+            avg_train_loss, std_train_loss, max_train_loss, max_train_loss = get_stat(tr_loss)
+            msg = "[epoch {}/demos {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, demo_id + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss)
 
-    avg_train_loss = np.mean(tr_loss)
-    std_train_loss = np.std(tr_loss)
-    max_train_loss = np.max(tr_loss)
-    min_train_loss = np.min(tr_loss) 
+            with open(training_status_path, 'a') as f:
+                f.write(msg + "\n")
+    
+    avg_train_loss, std_train_loss, max_train_loss, max_train_loss = get_stat(tr_loss)
     training_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
 
     msg = "[epoch {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss) + "\n"
     msg += "Training epoch took: {:}".format(training_time)
-    print(msg)
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
-    
     # Testing
     msg = f"Testing..."
-    print(msg)
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
     vlm.eval()
     image_conv.eval()
     te_loss = []
-    randmized_demo_ids = np.arange(0, len(demos_test))
-    e_idx = 0
-    for demo_id in randmized_demo_ids:
+    demo_ids = np.arange(0, len(demos_test))
+
+    for demo_id in demo_ids:
         demo = demos_test[demo_id]
         time_step = 1
         obss = []
@@ -421,11 +431,6 @@ for epoch_i in range(0, args.epochs):
             img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
         num_csgs = len(csg_time_steps)
 
-        msg = f"[{e_idx}][demo {demo_id}] {num_csgs}/{time_step - 1}"
-        print(msg)
-        with open(training_status_path, 'a') as f:
-            f.write(msg + "\n")
-
         time_step = 0
         loss = None
         mission = demo[0][0]['mission']
@@ -438,7 +443,6 @@ for epoch_i in range(0, args.epochs):
         vlm_input['media_locations'][0, [input_text_len-4]] = True # '<image> ' (appended to mission) has four tokens
         vlm_input['image_embeds'] = img_embeds[:, [0], :, :]
 
-        #pre_pre_csg_time_step = -1
         for idx, pre_csg_time_step, csg_time_step in zip(range(num_csgs), pre_csg_time_steps, csg_time_steps):
             # accumulate text tokens (target/completed subgoal) and image embedding
             # passed_steps: focused steps between two adjecent completed subgoals
@@ -454,9 +458,6 @@ for epoch_i in range(0, args.epochs):
 
             pad_label=-1
             vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, pad_label)
-
-            #for key in vlm_input:
-            #    vlm_input[key] = vlm_input[key].to(device)
 
             # Calculate the loss and update the model
             with torch.no_grad():
@@ -493,27 +494,25 @@ for epoch_i in range(0, args.epochs):
 
         loss /= num_csgs
         te_loss.append(loss.item())
-        msg = f"\t{loss.item()}"
-        print(msg)
-        with open(training_status_path, 'a') as f:
-            f.write(msg + "\n")
-
-        e_idx += 1
 
         gc.collect()
         torch.cuda.empty_cache()
 
 
-    avg_test_loss = np.mean(te_loss)
-    std_test_loss = np.std(te_loss)
-    max_test_loss = np.max(te_loss)
-    min_test_loss = np.min(te_loss) 
+    avg_test_loss, std_test_loss, max_test_loss, max_test_loss = get_stat(te_loss) 
     test_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
     msg = "[epoch {}] Testing Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_test_loss, std_test_loss, max_test_loss, min_test_loss) + "\n"
     msg += "Testing time took: {:}".format(test_time)
-    print(msg)
+
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
- 
+
+    epoch_train_losses[epoch_i] = avg_train_loss
+    epoch_test_losses[epoch_i] = avg_test_loss
+    np.save(train_loss_path, epoch_train_losses)
+    np.save(test_loss_path, epoch_test_losses)
+    torch.save(image_conv_model_path, image_conv)
+    torch.save(vlm_model_path, vlm)
+
