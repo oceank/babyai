@@ -219,8 +219,12 @@ def get_image_embedding(image_conv, image_preproc, obss, device):
     image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
     return image_embeds
 
-def get_stat(arr):
-    return np.mean(arr), np.std(arr), np.max(arr), np.min(arr)
+def get_stat(arr, rd=2):
+    ave = round(np.mean(arr),rd)
+    std = round(np.std(arr), rd)
+    max = round(np.max(arr), rd)
+    min = round(np.min(arr), rd)
+    return ave, std, max, min
 
 lowlevel_instr_set = LowlevelInstrSet()
 
@@ -369,7 +373,7 @@ for epoch_i in range(0, args.epochs):
         if args.log_interval!=0 and demo_id%args.log_interval == 0 and demo_id != 0:
             avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
             training_time = format_time(time.time() - t0)
-            msg = "[epoch {}/demos {}/time {} ] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, demo_id + 1, training_time, avg_train_loss, std_train_loss, max_train_loss, min_train_loss)
+            msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {training_time} ] Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
 
             with open(training_status_path, 'a') as f:
                 f.write(msg + "\n")
@@ -379,8 +383,7 @@ for epoch_i in range(0, args.epochs):
     gc.collect()
     torch.cuda.empty_cache()
 
-    msg = "[epoch {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss) + "\n"
-    msg += "Training epoch took: {:}".format(training_time)
+    msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {training_time} ] Epoch Finished With Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
@@ -500,12 +503,10 @@ for epoch_i in range(0, args.epochs):
 
 
     avg_test_loss, std_test_loss, max_test_loss, min_test_loss = get_stat(te_loss) 
-    test_time = format_time(time.time() - t0)
+    testing_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
-    msg = "[epoch {}] Testing Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_test_loss, std_test_loss, max_test_loss, min_test_loss) + "\n"
-    msg += "Testing time took: {:}".format(test_time)
-
+    msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {testing_time} ] Testing Loss (me,std,ma,mi): {avg_test_loss}, {std_test_loss}, {max_test_loss}, {min_test_loss}"
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
