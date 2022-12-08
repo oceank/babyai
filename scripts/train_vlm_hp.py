@@ -191,33 +191,42 @@ if args.vlm_arc == "Flamingo":
 else:
     raise("Unsupported VLM")
 
+class BowImageConvEncoder(nn.Module):
+    def __init__(self, visual_observation_bow_flat_dim, embedding_dim, image_preproc, device):
+        super.__init__()
+        self.visual_observation_bow_flat_dim = visual_observation_bow_flat_dim
+        self.embedding_dim = embedding_dim
+        self.image_preproc = image_preproc
+        self.device = device
+        self.image_conv = nn.Sequential(*[
+                    ImageBOWEmbedding(self.visual_observation_bow_flat_dim, self.embedding_dim),
+                    nn.Conv2d(
+                        in_channels=self.embedding_dim, out_channels=self.embedding_dim,
+                        kernel_size=(3, 3), stride=1, padding=1),
+                    nn.BatchNorm2d(self.embedding_dim),
+                    nn.ReLU(),
+                    nn.Conv2d(in_channels=self.embedding_dim, out_channels=self.embedding_dim, kernel_size=(3, 3), padding=1),
+                    nn.BatchNorm2d(self.embedding_dim),
+                    nn.ReLU(),
+                ])
+        self.image_conv.apply(initialize_parameters)
+        self.image_conv.to(device)
+    
+    def forward(self, obss):
+        batch_size = 1
+        images = self.image_preproc(obss, device=self.device)
+        images = images.unsqueeze(dim=0)
+        images = rearrange(images, 'b t h w c -> (b t) c h w')
+        image_embeds = self.image_conv(images)
+        # convert to the shape : (batch_size, times, height*width, feature_dim)
+        image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
+        return image_embeds
+
 env = gym.make(args.env)
 image_preproc = RawImagePreprocessor()
 visual_observation_bow_flat_dim=147
-image_conv = nn.Sequential(*[
-            ImageBOWEmbedding(visual_observation_bow_flat_dim, vlm.wte.embedding_dim),
-            nn.Conv2d(
-                in_channels=vlm.wte.embedding_dim, out_channels=vlm.wte.embedding_dim,
-                kernel_size=(3, 3), stride=1, padding=1),
-            nn.BatchNorm2d(vlm.wte.embedding_dim),
-            nn.ReLU(),
-            nn.Conv2d(in_channels=vlm.wte.embedding_dim, out_channels=vlm.wte.embedding_dim, kernel_size=(3, 3), padding=1),
-            nn.BatchNorm2d(vlm.wte.embedding_dim),
-            nn.ReLU(),
-        ])
-image_conv.apply(initialize_parameters)
-
-
-def get_image_embedding(image_conv, image_preproc, obss, device):
-    batch_size = 1
-    images = image_preproc(obss, device=device)
-    images = images.unsqueeze(dim=0)
-    images = images.to(device)
-    images = rearrange(images, 'b t h w c -> (b t) c h w')
-    image_embeds = image_conv(images)
-    # convert to the shape : (batch_size, times, height*width, feature_dim)
-    image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
-    return image_embeds
+bow_image_conv_encoder = BowImageConvEncoder(
+    visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
 
 def get_stat(arr, rd=2):
     ave = round(np.mean(arr),rd)
@@ -239,7 +248,7 @@ lowlevel_instr_set = LowlevelInstrSet()
 parameters = list(vlm.parameters()) + list(image_conv.parameters())
 optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
 vlm.to(device)
-image_conv.to(device)
+
 epoch_train_losses = np.zeros(args.epochs)
 epoch_test_losses = np.zeros(args.epochs)
 train_loss_path = os.path.join(model_dir, "train_loss.npy") 
@@ -253,7 +262,7 @@ for epoch_i in range(0, args.epochs):
     t0 = time.time()
 
     vlm.train()
-    image_conv.train()
+    bow_image_conv_encoder.train()
     tr_loss=[]
 
     randmized_demo_ids = np.arange(0, len(demos_train))
@@ -293,7 +302,7 @@ for epoch_i in range(0, args.epochs):
             csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
         csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
         with amp.autocast(enabled=True):
-            img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
+            img_embeds = bow_image_conv_encoder(obss)
         num_csgs = len(csg_time_steps)
 
         time_step = 0
@@ -381,7 +390,7 @@ for epoch_i in range(0, args.epochs):
     
     epoch_train_losses[epoch_i] = avg_train_loss
     np.save(train_loss_path, epoch_train_losses)
-    torch.save(image_conv_model_path, image_conv)
+    torch.save(image_conv_model_path, bow_image_conv_encoder)
     torch.save(vlm_model_path, vlm)
 
     avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
@@ -399,7 +408,7 @@ for epoch_i in range(0, args.epochs):
         f.write(msg + "\n")
 
     vlm.eval()
-    image_conv.eval()
+    bow_image_conv_encoder.eval()
     te_loss = []
     demo_ids = np.arange(0, len(demos_test))
 
@@ -437,7 +446,7 @@ for epoch_i in range(0, args.epochs):
             csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
         csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
         with torch.no_grad():
-            img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
+            img_embeds = bow_image_conv_encoder(obss)
         num_csgs = len(csg_time_steps)
 
         time_step = 0
@@ -520,6 +529,6 @@ for epoch_i in range(0, args.epochs):
     epoch_test_losses[epoch_i] = avg_test_loss
     #np.save(train_loss_path, epoch_train_losses)
     np.save(test_loss_path, epoch_test_losses)
-    #torch.save(image_conv_model_path, image_conv)
+    #torch.save(image_conv_model_path, bow_image_conv_encoder)
     #torch.save(vlm_model_path, vlm)
 
