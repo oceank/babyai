@@ -258,7 +258,7 @@ for epoch_i in range(0, args.epochs):
 
     randmized_demo_ids = np.arange(0, len(demos_train))
     randmized_demo_ids = np.random.permutation(randmized_demo_ids)
-
+    processed_demos_count = 0
     for demo_id in randmized_demo_ids:
         demo = demos_train[demo_id]
         time_step = 1
@@ -367,17 +367,23 @@ for epoch_i in range(0, args.epochs):
         loss.backward()
         optimizer.step()
 
+        processed_demos_count += 1
         gc.collect()
         torch.cuda.empty_cache()
 
-        if args.log_interval!=0 and demo_id%args.log_interval == 0 and demo_id != 0:
+        if args.log_interval!=0 and processed_demos_count%args.log_interval == 0:
             avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
             training_time = format_time(time.time() - t0)
-            msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {training_time} ] Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
+            msg = f"[epoch {epoch_i+1}/demos {processed_demos_count}/time {training_time} ] Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
 
             with open(training_status_path, 'a') as f:
                 f.write(msg + "\n")
     
+    epoch_train_losses[epoch_i] = avg_train_loss
+    np.save(train_loss_path, epoch_train_losses)
+    torch.save(image_conv_model_path, image_conv)
+    torch.save(vlm_model_path, vlm)
+
     avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
     training_time = format_time(time.time() - t0)
     gc.collect()
@@ -506,14 +512,14 @@ for epoch_i in range(0, args.epochs):
     testing_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
-    msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {testing_time} ] Testing Loss (me,std,ma,mi): {avg_test_loss}, {std_test_loss}, {max_test_loss}, {min_test_loss}"
+    msg = f"[epoch {epoch_i+1}/time {testing_time} ] Testing Loss (me,std,ma,mi): {avg_test_loss}, {std_test_loss}, {max_test_loss}, {min_test_loss}"
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
-    epoch_train_losses[epoch_i] = avg_train_loss
+    #epoch_train_losses[epoch_i] = avg_train_loss
     epoch_test_losses[epoch_i] = avg_test_loss
-    np.save(train_loss_path, epoch_train_losses)
+    #np.save(train_loss_path, epoch_train_losses)
     np.save(test_loss_path, epoch_test_losses)
-    torch.save(image_conv_model_path, image_conv)
-    torch.save(vlm_model_path, vlm)
+    #torch.save(image_conv_model_path, image_conv)
+    #torch.save(vlm_model_path, vlm)
 
