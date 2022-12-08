@@ -245,7 +245,7 @@ lowlevel_instr_set = LowlevelInstrSet()
 #       completed_subgoals: [list of completed subgoals' indices at timestep t]
 #       reward: a real number between 0 and 1
 #       seed: an integer
-parameters = list(vlm.parameters()) + list(image_conv.parameters())
+parameters = list(vlm.parameters()) + list(bow_image_conv_encoder.parameters())
 optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
 vlm.to(device)
 
