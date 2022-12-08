@@ -98,7 +98,12 @@ args = parser.parse_args()
 # "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
 demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
 demos = utils.load_demos(demos_path)
-training_status_path = demos_path[:-4] + "_training_status.txt"
+training_status_path = demos_path[:-4] + "_training_status"
+suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+if args.abstract_history:
+    training_status_path += "_abstract_" + suffix + ".txt"
+else:
+    training_status_path += "_full_" + suffix + ".txt"
 # demos: list of tuples
 #   tuple: (obs, action, done, completed_subgoals, reward, seed)
 #       obs: {'image':, 'direction':, 'mission':}
