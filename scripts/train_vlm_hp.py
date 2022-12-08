@@ -367,13 +367,14 @@ for epoch_i in range(0, args.epochs):
         torch.cuda.empty_cache()
 
         if args.log_interval!=0 and demo_id%args.log_interval == 0 and demo_id != 0:
-            avg_train_loss, std_train_loss, max_train_loss, max_train_loss = get_stat(tr_loss)
-            msg = "[epoch {}/demos {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, demo_id + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss)
+            avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
+            training_time = format_time(time.time() - t0)
+            msg = "[epoch {}/demos {}/time {} ] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, demo_id + 1, training_time, avg_train_loss, std_train_loss, max_train_loss, min_train_loss)
 
             with open(training_status_path, 'a') as f:
                 f.write(msg + "\n")
     
-    avg_train_loss, std_train_loss, max_train_loss, max_train_loss = get_stat(tr_loss)
+    avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
     training_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
@@ -498,7 +499,7 @@ for epoch_i in range(0, args.epochs):
         torch.cuda.empty_cache()
 
 
-    avg_test_loss, std_test_loss, max_test_loss, max_test_loss = get_stat(te_loss) 
+    avg_test_loss, std_test_loss, max_test_loss, min_test_loss = get_stat(te_loss) 
     test_time = format_time(time.time() - t0)
     gc.collect()
     torch.cuda.empty_cache()
