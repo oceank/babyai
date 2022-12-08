@@ -104,14 +104,13 @@ if args.abstract_history:
 else:
     model_name_prefix += "_full_" + experiment_datetime
 
-log_dir = os.path.join(utils.storage_dir(), "logs", model_name_prefix)
+
 model_dir = os.path.join(utils.storage_dir(), "models", model_name_prefix)
-utils.create_folders_if_necessary(log_dir)
-utils.create_folders_if_necessary(model_dir)
+os.makedirs(model_dir)
 
 demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
 demos = utils.load_demos(demos_path)
-training_status_path = os.path.join(log_dir, "training_status.txt")
+training_status_path = os.path.join(model_dir, "training_status.txt")
 vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
 demos_train_set_path = os.path.join(model_dir, "trainset.pkl") 
