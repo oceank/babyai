@@ -81,9 +81,13 @@ def generate_demos(n_episodes, valid, seed, shift=0):
 
     agent = utils.load_agent(env, args.model, args.demos, 'agent', args.argmax, args.env)
     demos_path = utils.get_demos_path(args.demos, args.env, 'agent', valid)
+    demos_status_path = demos_path[:-4] + "_status.txt"
     demos = []
 
     checkpoint_time = time.time()
+
+    with open(demos_status_path, 'w') as f:
+        f.write(f"{args.env}: Collection Started!\n")
 
     just_crashed = False
     # idx 0: count of time steps when no subgoal is completed
@@ -167,8 +171,11 @@ def generate_demos(n_episodes, valid, seed, shift=0):
             csg1 = completed_subgoals_counts[1]/total_time_steps
             csg2 = completed_subgoals_counts[2]/total_time_steps
 
-            logger.info("demo #{}, {:.3f} demos per second, {:.3f} seconds to go, 0sg({:.3f}), 1sg({:.3f}), >1sg({:.3f})".format(
-                len(demos) - 1, demos_per_second, to_go, csg0, csg1, csg2))
+            status_msg = "{}: demo #{}, {:.3f} demos per second, {:.3f} seconds to go, 0sg({:.3f}), 1sg({:.3f}), >1sg({:.3f})".format(
+                args.env, len(demos) - 1, demos_per_second, to_go, csg0, csg1, csg2)
+            logger.info(status_msg)
+            with open(demos_status_path, 'w') as f:
+                f.write(status_msg + "\n")
             checkpoint_time = now
 
         # Save demonstrations
@@ -187,6 +194,8 @@ def generate_demos(n_episodes, valid, seed, shift=0):
     logger.info("{} demos saved".format(len(demos)))
     print_demo_lengths(demos[-100:])
 
+    with open(demos_status_path, 'w') as f:
+        f.write(f"{args.env}: Collection Done!\n")
 
 def generate_demos_cluster():
     demos_per_job = args.episodes // args.jobs
