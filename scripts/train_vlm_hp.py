@@ -359,32 +359,156 @@ for epoch_i in range(0, args.epochs):
     min_train_loss = np.min(tr_loss) 
     training_time = format_time(time.time() - t0)
     gc.collect()
+    torch.cuda.empty_cache()
+
     msg = "[epoch {}] Training Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_train_loss, std_train_loss, max_train_loss, min_train_loss) + "\n"
     msg += "Training epoch took: {:}".format(training_time)
     print(msg)
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
+    
+    # Testing
+    msg = f"Testing..."
+    print(msg)
+    with open(training_status_path, 'a') as f:
+        f.write(msg + "\n")
 
-
-    '''
-    t0 = time.time()
     vlm.eval()
-    val_loss = 0
-    losses = []
-    for batch in val_loader:
-        losses = []
+    image_conv.eval()
+    te_loss = []
+    randmized_demo_ids = np.arange(0, len(demos_test))
+    e_idx = 0
+    for demo_id in randmized_demo_ids:
+        demo = demos_test[demo_id]
+        time_step = 1
+        obss = []
+        csg_texts = []
+        csg_time_steps = []
+        pre_csg_time_step = 0
+        for (obs, _, _, completed_subgoals) in demo[:-2]:
+            if not args.abstract_history:
+                obss.append(obs)
+            if len(completed_subgoals):
+                focused_time_steps = time_step-pre_csg_time_step
+                if args.abstract_history:
+                    focused_time_steps = 1
+                    obss.append(obs)
+                csg_text = "<image> "*focused_time_steps+lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
+                csg_texts.append(csg_text)
+                # Walk around:
+                #   The observation before the time step when a subgoal completes is used to verify the completion
+                #   so, currently they are stored together in the collected successful tracjectoies.
+                #   While, in VLM, the observation at the time step when the subgoal actually completes is used as
+                #   a reference point. So, here, add 1 to 'time_step' to walk around this issue.
+                csg_time_steps.append(time_step)
+                pre_csg_time_step = time_step
+            time_step += 1
+        
+        pre_csg_time_steps = [0]
+        pre_csg_time_steps.extend(csg_time_steps[:-1])
+
+        csg_texts_tokens = tokenizer(csg_texts, padding=True, return_tensors="pt")
+        for key in csg_texts_tokens:
+            csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
+        csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
         with torch.no_grad():
-            batch_size = batch['input_ids'].size(0)
-            for key in batch:
-                batch[key] = batch[key].to(device)
-            outputs= model(**batch, return_dict=True)          
-            loss = outputs['loss']
-            losses.append(loss.item())
-    val_loss = np.mean(losses)
-    gc.collect() 
-    validation_time = format_time(time.time() - t0)
-    print("Validation Loss: {0:.4f}".format(val_loss))
-    print("Validation took: {:}".format(validation_time))
-    print("")
-    '''
+            img_embeds = get_image_embedding(image_conv, image_preproc, obss, device)
+        num_csgs = len(csg_time_steps)
+
+        msg = f"[{e_idx}][demo {demo_id}] {num_csgs}/{time_step - 1}"
+        print(msg)
+        with open(training_status_path, 'a') as f:
+            f.write(msg + "\n")
+
+        time_step = 0
+        loss = None
+        mission = demo[0][0]['mission']
+
+        vlm_input = tokenizer([mission+"<image> "], max_length=512, padding="max_length", return_tensors='pt')
+        for key in vlm_input:
+            vlm_input[key] = vlm_input[key].to(device)
+        input_text_len = vlm_input['attention_mask'].sum(dim=-1)[0] # batch size is 1 here
+        vlm_input['media_locations'] = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+        vlm_input['media_locations'][0, [input_text_len-4]] = True # '<image> ' (appended to mission) has four tokens
+        vlm_input['image_embeds'] = img_embeds[:, [0], :, :]
+
+        #pre_pre_csg_time_step = -1
+        for idx, pre_csg_time_step, csg_time_step in zip(range(num_csgs), pre_csg_time_steps, csg_time_steps):
+            # accumulate text tokens (target/completed subgoal) and image embedding
+            # passed_steps: focused steps between two adjecent completed subgoals
+            passed_steps = csg_time_step - pre_csg_time_step
+            if args.abstract_history:
+                passed_steps = 1
+            subgoal_tokens_len = csg_tokens_len[idx]-3*passed_steps
+            vlm_input['input_ids'][0, input_text_len:input_text_len+subgoal_tokens_len] = csg_texts_tokens['input_ids'][idx, (3*passed_steps):csg_tokens_len[idx]]
+            vlm_input['attention_mask'][0, input_text_len:input_text_len+subgoal_tokens_len] = 1
+
+            label_mask = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+            label_mask[0, input_text_len:input_text_len+subgoal_tokens_len] = True
+
+            pad_label=-1
+            vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, pad_label)
+
+            #for key in vlm_input:
+            #    vlm_input[key] = vlm_input[key].to(device)
+
+            # Calculate the loss and update the model
+            with torch.no_grad():
+                result = vlm(**vlm_input, return_dict=True)
+                gc.collect()
+                torch.cuda.empty_cache()
+
+                loss_csg = result['loss']
+                if loss:
+                    loss += loss_csg
+                else:
+                    loss = loss_csg
+            
+            # append image embeddings for the next target subgoal if it exist
+            input_text_len += subgoal_tokens_len # for the subgoal tokens
+            #pre_pre_csg_time_step = pre_csg_time_step
+            if idx+1 == num_csgs: # the last completed subgoal has been processed
+                break
+
+            if args.abstract_history:
+                current_media_locations = [input_text_len]
+                vlm_input['image_embeds'] = img_embeds[:, :(idx+2), :, :]
+            else:
+                current_media_locations = [input_text_len+3*i for i in range(0, passed_steps)]
+                vlm_input['image_embeds'] = img_embeds[:, :(csg_time_step+1), :, :]
+
+            vlm_input['input_ids'][0, input_text_len:input_text_len+(3*passed_steps)] = csg_texts_tokens['input_ids'][idx, :(3*passed_steps)]
+            vlm_input['attention_mask'][0, input_text_len:input_text_len+(3*passed_steps)] = 1
+            input_text_len += 3*passed_steps # for tokens of '<image> ...<image> ' preceding the subgoal
+
+            vlm_input['media_locations'][0, current_media_locations] = True
+
+
+
+        loss /= num_csgs
+        te_loss.append(loss.item())
+        msg = f"\t{loss.item()}"
+        print(msg)
+        with open(training_status_path, 'a') as f:
+            f.write(msg + "\n")
+
+        e_idx += 1
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+
+    avg_test_loss = np.mean(te_loss)
+    std_test_loss = np.std(te_loss)
+    max_test_loss = np.max(te_loss)
+    min_test_loss = np.min(te_loss) 
+    test_time = format_time(time.time() - t0)
+    gc.collect()
+    torch.cuda.empty_cache()
+    msg = "[epoch {}] Testing Loss (me,std,ma,mi): {0:.4f}, {0:.4f}, {0:.4f}, {0:.4f}".format(epoch_i + 1, avg_test_loss, std_test_loss, max_test_loss, min_test_loss) + "\n"
+    msg += "Testing time took: {:}".format(test_time)
+    print(msg)
+    with open(training_status_path, 'a') as f:
+        f.write(msg + "\n")
+ 
