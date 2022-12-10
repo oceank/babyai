@@ -394,7 +394,7 @@ for epoch_i in range(0, args.epochs):
     gc.collect()
     torch.cuda.empty_cache()
 
-    msg = f"[epoch {epoch_i+1}/demos {demo_id+1}/time {training_time} ] Epoch Finished With Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
+    msg = f"[epoch {epoch_i+1}/demos {processed_demos_count}/time {training_time} ] Epoch Finished With Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
     with open(training_status_path, 'a') as f:
         f.write(msg + "\n")
 
