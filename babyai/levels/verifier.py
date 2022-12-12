@@ -218,7 +218,7 @@ class LowlevelInstrSet:
                 msg.append(f"[SG{idx}] "+self.all_subgoals[idx][1].instr_desc)
             else:
                 msg.append(self.all_subgoals[idx][1].instr_desc)
-        msg = ", ".join(msg) + "."
+        msg = ", ".join(msg) + "!"
         return msg 
 
 class ObjDesc:
