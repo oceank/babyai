@@ -155,6 +155,15 @@ def prepare_vlm_input_per_demo(demo, abstract_history, lowlevel_instr_set, token
 
     return vlm_input, obss, critical_time_steps
 
+def prepare_dataset(demos, abstract_history, lowlevel_instr_set, tokenizer):
+    result = []
+    for demo in demos:
+        vlm_input, vlm_media, num_completed_subgoals = prepare_vlm_input_per_demo(
+            demo, abstract_history, lowlevel_instr_set, tokenizer)
+        result.append((vlm_input, vlm_media, num_completed_subgoals))
+    return result
+
+
 
 # Parse arguments
 #parser = ArgumentParser()
@@ -329,7 +338,10 @@ vlm.to(device)
 epoch_train_losses = np.zeros(args.epochs)
 epoch_test_losses = np.zeros(args.epochs)
 train_loss_path = os.path.join(model_dir, "train_loss.npy") 
-test_loss_path = os.path.join(model_dir, "test_loss.npy") 
+test_loss_path = os.path.join(model_dir, "test_loss.npy")
+
+train_dataset = prepare_dataset(demos_train, args.abstract_history, lowlevel_instr_set, tokenizer)
+test_dataset  = prepare_dataset(demos_test, args.abstract_history, lowlevel_instr_set, tokenizer)
 
 for epoch_i in range(0, args.epochs):
     msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
@@ -346,12 +358,7 @@ for epoch_i in range(0, args.epochs):
     randmized_demo_ids = np.random.permutation(randmized_demo_ids)
     processed_demos_count = 0
     for demo_id in randmized_demo_ids:
-        demo = demos_train[demo_id]
-
-        vlm_input, vlm_media, num_completed_subgoals = prepare_vlm_input_per_demo(
-            demo, args.abstract_history, lowlevel_instr_set, tokenizer)       
-
-        loss = None
+        vlm_input, vlm_media, num_completed_subgoals = train_dataset[demo_id]
         with amp.autocast(enabled=True):
             vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
             result = vlm(**vlm_input, return_dict=True)
@@ -397,13 +404,9 @@ for epoch_i in range(0, args.epochs):
     vlm.eval()
     bow_image_conv_encoder.eval()
     te_loss = []
-    demo_ids = np.arange(0, len(demos_test))
 
-    for demo_id in demo_ids:
-        demo = demos_test[demo_id]
-
-        vlm_input, vlm_media, num_completed_subgoals = prepare_vlm_input_per_demo(
-            demo, args.abstract_history, lowlevel_instr_set, tokenizer)       
+    for demo_id in range(len(demos_test)):
+        vlm_input, vlm_media, num_completed_subgoals = test_dataset[demo_id]
 
         # Calculate the loss and update the model
         with torch.no_grad():
@@ -412,7 +415,6 @@ for epoch_i in range(0, args.epochs):
             test_loss = result['loss']/num_completed_subgoals
 
         te_loss.append(test_loss.item())
-
 
     avg_test_loss, std_test_loss, max_test_loss, min_test_loss = get_stat(te_loss) 
     testing_time = format_time(time.time() - t0)
