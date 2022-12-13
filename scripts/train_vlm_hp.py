@@ -353,7 +353,7 @@ for epoch_i in range(0, args.epochs):
 
         loss = None
         with amp.autocast(enabled=True):
-            vlm_input['image_embeds'] = bow_image_conv_encoder(obss)
+            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
             result = vlm(**vlm_input, return_dict=True)
             loss = result['loss']/num_completed_subgoals
 
@@ -407,6 +407,7 @@ for epoch_i in range(0, args.epochs):
 
         # Calculate the loss and update the model
         with torch.no_grad():
+            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
             result = vlm(**vlm_input, return_dict=True)
             test_loss = result['loss']/num_completed_subgoals
 
