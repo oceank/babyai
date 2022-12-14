@@ -71,12 +71,31 @@ class BowImageConvEncoder(nn.Module):
         image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
         return image_embeds
 
-def get_stat(arr, rd=2):
+def log_msg(fp, msg, logging_mode='a'):
+    with open(fp, logging_mode) as f:
+        f.write(msg + "\n")
+
+def get_stat(arr, rd=4, return_type='plain'):
     ave = round(np.mean(arr),rd)
     std = round(np.std(arr), rd)
     max = round(np.max(arr), rd)
     min = round(np.min(arr), rd)
-    return ave, std, max, min
+    if return_type == "np":
+        return np.array([ave, std, max, min])
+    else:
+        return ave, std, max, min
+
+def log_losses_stat(fp, losses, t0, epoch_id, is_training):
+    avg_loss, std_loss, max_loss, min_loss = get_stat(losses)
+    time_elapse = format_time(time.time() - t0)
+    msg = f"[epoch {epoch_id+1}/demos {len(losses)}/time {time_elapse}] "
+    if is_training:
+        msg += "Training "
+    else:
+        msg += "Testing "
+    msg += f"Loss (me,std,ma,mi): {avg_loss}, {std_loss}, {max_loss}, {min_loss}"
+
+    log_msg(fp, msg)
 
 # Prepare the vlm input for one demo (successful trajectory) such that
 # * call the VLM on the entire token sequence once
@@ -163,13 +182,89 @@ def prepare_dataset(demos, abstract_history, lowlevel_instr_set, tokenizer):
         result.append((vlm_input, vlm_media, num_completed_subgoals))
     return result
 
+def train_test_helper(
+    is_training,
+    training_status_path,
+    epoch_id,
+    demos,
+    log_interval,
+    abstract_history,
+    lowlevel_instr_set,
+    tokenizer,
+    vlm,
+    bow_image_conv_encoder):
 
+    msg = ""
+    t0 = time.time()
+    losses=[]
+
+    demo_ids = np.arange(0, len(demos))
+    if is_training: # training
+        demo_ids = np.random.permutation(demo_ids)
+        vlm.train()
+        bow_image_conv_encoder.train()
+        msg = "Training..."
+    else: # testing
+        vlm.eval()
+        bow_image_conv_encoder.eval()
+        msg = "Testing..."
+    
+    num_log_intervals = len(demos)//log_interval
+    log_msg(training_status_path, msg)
+
+    for log_interval_idx in range(num_log_intervals):
+        start_idx = log_interval_idx*args.log_interval
+        end_idx = (1+log_interval_idx)*args.log_interval
+        if log_interval_idx+1 != num_log_intervals:
+            demos_interval = [demos[idx] for idx in demo_ids[start_idx:end_idx]]
+        else:
+            demos_interval = [demos[idx] for idx in demo_ids[start_idx:]]
+        dataset = prepare_dataset(demos_interval, abstract_history, lowlevel_instr_set, tokenizer)
+        
+        num_demos = len(dataset)
+        for demo_idx in range(num_demos):
+            vlm_input, vlm_media, num_completed_subgoals = dataset[demo_idx]
+            if is_training:
+                # Calculate the training loss
+                with amp.autocast(enabled=True):
+                    vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
+                    result = vlm(**vlm_input, return_dict=True)
+                    loss = result['loss']/num_completed_subgoals
+                # update the model(s)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            else:
+                # Calculate the testing loss
+                with torch.no_grad():
+                    vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
+                    result = vlm(**vlm_input, return_dict=True)
+                    loss = result['loss']/num_completed_subgoals
+            losses.append(loss.item())
+
+        # get statistics for each log interval during training
+        if is_training:
+            log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
+
+        # manage memory
+        del vlm_media
+        del vlm_input
+        del result
+        gc.collect()
+        torch.cuda.empty_cache()
+    
+    # logging the testing loss
+    if not is_training:
+        log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
+
+    loss_statistics = get_stat(losses, rd=4, return_type='np')
+    return loss_statistics
 
 # Parse arguments
 #parser = ArgumentParser()
 parser = argparse.ArgumentParser(
-                    prog = 'train_vlm_hp.py',
-                    description = 'Train a vision-language model',)
+    prog = 'train_vlm_hp.py',
+    description = 'Train a vision-language model',)
 
 parser.add_argument("--env", default=None,
                             help="name of the environment to train on (REQUIRED)")
@@ -189,34 +284,6 @@ parser.add_argument("--abstract-history", action="store_true", default=False,
 parser.add_argument("--log-interval", type=int, default=10,
                     help="number of used demonstrations between two logging events during training (default: 10, 0 means no saving)")
 
-'''
-parser.add_argument("--discount", type=float, default=0.99,
-                    help="discount factor (default: 0.99)")
-parser.add_argument("--reward-scale", type=float, default=20.,
-                    help="Reward scale multiplier")
-parser.add_argument("--gae-lambda", type=float, default=0.99,
-                    help="lambda coefficient in GAE formula (default: 0.99, 1 means no gae)")
-parser.add_argument("--value-loss-coef", type=float, default=0.5,
-                    help="value loss term coefficient (default: 0.5)")
-parser.add_argument("--max-grad-norm", type=float, default=0.5,
-                    help="maximum norm of gradient (default: 0.5)")
-parser.add_argument("--clip-eps", type=float, default=0.2,
-                    help="clipping epsilon for PPO (default: 0.2)")
-parser.add_argument("--save-interval", type=int, default=50,
-                    help="number of updates between two saves (default: 50, 0 means no saving)")
-
-
-parser.add_argument("--max-lang-model-input-len", type=int, default=1024,
-                    help="maximum number of tokens in one sequence that the VLM's language model can handel (default: 1024)")
-parser.add_argument("--max-desc-len", type=int, default=20,
-                    help="maxmium number of tokens in a newly generated sentence (default: 20)")
-parser.add_argument("--top-k", type=int, default=50,
-                    help="The number of tokens with the top predicted probabilities (default: 50)")
-parser.add_argument("--top-p", type=float, default=0.95,
-                    help="The group of tokens where the summation of their predicted probabilities is >= <top-p> (default: 0.95)")
-parser.add_argument("--sample-next-token", action="store_true", default=False,
-                    help="Get the next token by sampling the predicted probability distribution over the vocabulary (default: True)")
-'''
 
 args = parser.parse_args()
 
@@ -269,9 +336,7 @@ if args.vlm_arc == "Flamingo":
     msg = f"=== Initialize a visual-language model, FlamingoGPT2, to assist the agent ===" + "\n"
     msg += f"[Setup] Use VLM to help the anget to explore the grid world" + "\n"
     msg += f"[Setup] Create a tokenizer and {lang_model_name} language model"
-    #print(msg)
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
+    log_msg(training_status_path, msg)
 
     tokenizer = GPT2Tokenizer.from_pretrained(lang_model_name, return_dict=True)
     tokenizer.pad_token = tokenizer.eos_token # pad token
@@ -292,9 +357,7 @@ if args.vlm_arc == "Flamingo":
     vit = None
 
     msg = f"[Setup] Create a Flamingo Model"
-    #print(msg)
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
+    log_msg(training_status_path, msg)
     vlm = FlamingoGPT2(
         lang_model=lang_model,       # pretrained language model GPT2 with a language header
         dim = dim_lang_embeds,       # dimensions of the embedding
@@ -321,112 +384,55 @@ visual_observation_bow_flat_dim=147
 bow_image_conv_encoder = BowImageConvEncoder(
     visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
 lowlevel_instr_set = LowlevelInstrSet()
-
-
-# Train and evaluate
-#   demo: ((obs, action, done, completed_subgoals), reward, seed)
-#       obs: {'image':, 'direction':, 'mission':}
-#       action: an integer
-#       done: true or false
-#       completed_subgoals: [list of completed subgoals' indices at timestep t]
-#       reward: a real number between 0 and 1
-#       seed: an integer
-parameters = list(vlm.parameters()) + list(bow_image_conv_encoder.parameters())
-optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
 vlm.to(device)
 
-epoch_train_losses = np.zeros(args.epochs)
-epoch_test_losses = np.zeros(args.epochs)
+parameters = list(vlm.parameters()) + list(bow_image_conv_encoder.parameters())
+optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
+
+epoch_train_losses = np.zeros((args.epochs, 4))
+epoch_test_losses = np.zeros((args.epochs, 4))
 train_loss_path = os.path.join(model_dir, "train_loss.npy") 
 test_loss_path = os.path.join(model_dir, "test_loss.npy")
 
-train_dataset = prepare_dataset(demos_train, args.abstract_history, lowlevel_instr_set, tokenizer)
-test_dataset  = prepare_dataset(demos_test, args.abstract_history, lowlevel_instr_set, tokenizer)
+msg = f"Training and testing start..."
+log_msg(training_status_path, msg)
 
 for epoch_i in range(0, args.epochs):
     msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
+    log_msg(training_status_path, msg)
 
-    t0 = time.time()
+    # Training
+    is_training = True
+    tr_losses_stat = train_test_helper(
+        is_training,
+        training_status_path,
+        epoch_i,
+        demos_train,
+        args.log_interval,
+        args.abstract_history,
+        lowlevel_instr_set,
+        tokenizer,
+        vlm,
+        bow_image_conv_encoder)
 
-    vlm.train()
-    bow_image_conv_encoder.train()
-    tr_loss=[]
-
-    randmized_demo_ids = np.arange(0, len(demos_train))
-    randmized_demo_ids = np.random.permutation(randmized_demo_ids)
-    processed_demos_count = 0
-    for demo_id in randmized_demo_ids:
-        vlm_input, vlm_media, num_completed_subgoals = train_dataset[demo_id]
-        with amp.autocast(enabled=True):
-            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
-            result = vlm(**vlm_input, return_dict=True)
-            loss = result['loss']/num_completed_subgoals
-
-        tr_loss.append(loss.item())
-
-        # update the Flamingo model
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        processed_demos_count += 1
-
-        if args.log_interval!=0 and processed_demos_count%args.log_interval == 0:
-            avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
-            training_time = format_time(time.time() - t0)
-            msg = f"[epoch {epoch_i+1}/demos {processed_demos_count}/time {training_time} ] Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
-
-            with open(training_status_path, 'a') as f:
-                f.write(msg + "\n")
-    
-    epoch_train_losses[epoch_i] = avg_train_loss
+    epoch_train_losses[epoch_i] = tr_losses_stat
     np.save(train_loss_path, epoch_train_losses)
     torch.save(bow_image_conv_encoder, image_conv_model_path)
     torch.save(vlm, vlm_model_path)
 
-    avg_train_loss, std_train_loss, max_train_loss, min_train_loss = get_stat(tr_loss)
-    training_time = format_time(time.time() - t0)
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    msg = f"[epoch {epoch_i+1}/demos {processed_demos_count}/time {training_time} ] Epoch Finished With Training Loss (me,std,ma,mi): {avg_train_loss}, {std_train_loss}, {max_train_loss}, {min_train_loss}"
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
-
-
     # Testing
-    msg = f"Testing..."
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
+    is_training = False
+    te_losses_stat = train_test_helper(
+        is_training,
+        training_status_path,
+        epoch_i,
+        demos_test,
+        args.log_interval,
+        args.abstract_history,
+        lowlevel_instr_set,
+        tokenizer,
+        vlm,
+        bow_image_conv_encoder)
 
-    vlm.eval()
-    bow_image_conv_encoder.eval()
-    te_loss = []
-
-    for demo_id in range(len(demos_test)):
-        vlm_input, vlm_media, num_completed_subgoals = test_dataset[demo_id]
-
-        # Calculate the loss and update the model
-        with torch.no_grad():
-            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
-            result = vlm(**vlm_input, return_dict=True)
-            test_loss = result['loss']/num_completed_subgoals
-
-        te_loss.append(test_loss.item())
-
-    avg_test_loss, std_test_loss, max_test_loss, min_test_loss = get_stat(te_loss) 
-    testing_time = format_time(time.time() - t0)
-    gc.collect()
-    torch.cuda.empty_cache()
-    msg = f"[epoch {epoch_i+1}/time {testing_time} ] Testing Loss (me,std,ma,mi): {avg_test_loss}, {std_test_loss}, {max_test_loss}, {min_test_loss}"
-    with open(training_status_path, 'a') as f:
-        f.write(msg + "\n")
-
-    #epoch_train_losses[epoch_i] = avg_train_loss
-    epoch_test_losses[epoch_i] = avg_test_loss
-    #np.save(train_loss_path, epoch_train_losses)
+    epoch_test_losses[epoch_i] = te_losses_stat
     np.save(test_loss_path, epoch_test_losses)
-    #torch.save(bow_image_conv_encoder, image_conv_model_path)
-    #torch.save(vlm, vlm_model_path)
