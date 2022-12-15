@@ -192,7 +192,9 @@ def train_test_helper(
     lowlevel_instr_set,
     tokenizer,
     vlm,
-    bow_image_conv_encoder):
+    bow_image_conv_encoder,
+    optimizer=None,
+    max_grad_norm=None):
 
     msg = ""
     t0 = time.time()
@@ -233,6 +235,8 @@ def train_test_helper(
                 # update the model(s)
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(vlm.parameters(), max_grad_norm)
+                torch.nn.utils.clip_grad_norm_(bow_image_conv_encoder.parameters(), max_grad_norm)
                 optimizer.step()
             else:
                 # Calculate the testing loss
@@ -276,7 +280,9 @@ parser.add_argument("--vlm_arc", default='Flamingo',
 parser.add_argument("--max-history-window-vlm", type=int, default=128,
                     help="maximum number of observations that can be hosted in the history for VLM (default: 128)")
 parser.add_argument("--lr", type=float, default=1e-5,
-                            help="learning rate (default: 1e-5)")
+                    help="learning rate (default: 1e-5)")
+parser.add_argument("--max-grad-norm", type=float, default=1.0,
+                    help="global clipping norm (default: 1.0)")
 parser.add_argument("--epochs", type=int, default=4,
                     help="number of epochs for training (default: 4)")
 parser.add_argument("--abstract-history", action="store_true", default=False,
@@ -413,7 +419,9 @@ for epoch_i in range(0, args.epochs):
         lowlevel_instr_set,
         tokenizer,
         vlm,
-        bow_image_conv_encoder)
+        bow_image_conv_encoder,
+        optimizer,
+        args.max_grad_norm)
 
     epoch_train_losses[epoch_i] = tr_losses_stat
     np.save(train_loss_path, epoch_train_losses)
