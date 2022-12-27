@@ -104,6 +104,8 @@ vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# ignored label (token) id that will be not considered when calculting the loss by the VLM
+skip_label = -1
 
 vlm = None
 # Create the VLM with randomly initialized parameters
@@ -151,7 +153,8 @@ if args.vlm_arc == "Flamingo":
                                      # It should be smaller than the sequence length of the image tokens
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = args.max_history_window_vlm,#16, 8, 128
-        only_attend_immediate_media=args.abstract_history # True: Abstracted history, False: Full history
+        only_attend_immediate_media=args.abstract_history, # True: Abstracted history, False: Full history
+        skip_label = skip_label      # The label id that will be skipped when calculating loss
     )
 else:
     raise("Unsupported VLM")
@@ -182,7 +185,7 @@ if unit_test:
     loss_per_csg_calc = calc_loss_per_subgoal(
         device, demos_train[test_demo_idx], args.abstract_history,
         lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-        debug=True)
+        debug=True, skip_label=skip_label)
     loss_per_csg_calc = loss_per_csg_calc.item()
 
     is_training = False
@@ -193,7 +196,7 @@ if unit_test:
         demos_train,
         log_interval, args.abstract_history,
         lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-        optimizer, args.max_grad_norm,
+        skip_label, optimizer, args.max_grad_norm,
         debug = True, test_demo_idx=test_demo_idx)
     print("[Unit Test: Summary")
     print(f"loss_per_csg_calc:{loss_per_csg_calc}")
@@ -218,6 +221,7 @@ for epoch_i in range(0, args.epochs):
         tokenizer,
         vlm,
         bow_image_conv_encoder,
+        skip_label,
         optimizer,
         args.max_grad_norm)
 
@@ -239,7 +243,8 @@ for epoch_i in range(0, args.epochs):
         lowlevel_instr_set,
         tokenizer,
         vlm,
-        bow_image_conv_encoder)
+        bow_image_conv_encoder,
+        skip_label)
 
     epoch_test_losses[epoch_i] = te_losses_stat
     np.save(test_loss_path, epoch_test_losses)

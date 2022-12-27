@@ -75,7 +75,7 @@ def log_losses_stat(fp, losses, t0, epoch_id, is_training):
 def calc_loss_per_subgoal(
     device, demo, abstract_history,
     lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-    debug=False):
+    debug=False, skip_label=-1):
 
     seed = demo[-1]
     losses = []
@@ -134,8 +134,8 @@ def calc_loss_per_subgoal(
         label_mask[0, input_text_len:input_text_len+subgoal_tokens_len] = True
         if debug:
             label_mask_all_csgs[0, input_text_len:input_text_len+subgoal_tokens_len] = True
-        pad_label=-1
-        vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, pad_label)
+
+        vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, skip_label)
 
         # Calculate the loss and update the model
         with amp.autocast(enabled=True):
@@ -163,7 +163,7 @@ def calc_loss_per_subgoal(
     loss = torch.tensor(losses).mean()
 
     if debug:
-        labels_all_csgs = vlm_input['input_ids'].masked_fill(label_mask_all_csgs==0, pad_label)
+        labels_all_csgs = vlm_input['input_ids'].masked_fill(label_mask_all_csgs==0, skip_label)
         msg = "[Unit Test - Loss Compulation Per Subgoal]..."
         msg += f"\nMission (seed {seed}): {mission}"
         msg += f"\ntime steps when a subgoal completes:"
@@ -195,7 +195,7 @@ def calc_loss_per_subgoal(
 # Prepare the vlm input for one demo (successful trajectory) such that
 # * call the VLM on the entire token sequence once
 # * use attention_mask to facilitate the retrival of each completed subgoal sample
-def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_set, tokenizer):
+def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1):
     seed = demo[-1]
     obss = []
 
@@ -272,16 +272,16 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
 
     vlm_input['media_locations'] = media_locations
     vlm_input['instance_weights'] = instance_weights
-    pad_label=-1
-    vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_masks==0, pad_label)        
+
+    vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_masks==0, skip_label)        
 
     return vlm_input, obss, seed, pre_csg_time_steps
 
-def prepare_dataset(device, demos, abstract_history, lowlevel_instr_set, tokenizer):
+def prepare_dataset(device, demos, abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1):
     result = []
     for demo in demos:
         vlm_input, vlm_media, seed, pre_csg_time_steps = prepare_vlm_input_per_demo(
-            device, demo, abstract_history, lowlevel_instr_set, tokenizer)
+            device, demo, abstract_history, lowlevel_instr_set, tokenizer, skip_label)
         result.append((vlm_input, vlm_media, seed, pre_csg_time_steps))
     return result
 
@@ -297,6 +297,7 @@ def train_test_helper(
     tokenizer,
     vlm,
     bow_image_conv_encoder,
+    skip_label=-1,
     optimizer=None,
     max_grad_norm=None,
     debug=False,
@@ -314,7 +315,9 @@ def train_test_helper(
         vlm.eval()
         bow_image_conv_encoder.eval()
         test_demo = [demos[test_demo_idx]]
-        dataset = prepare_dataset(device, test_demo, abstract_history, lowlevel_instr_set, tokenizer)
+        dataset = prepare_dataset(
+            device, test_demo, abstract_history,
+            lowlevel_instr_set, tokenizer, skip_label)
         vlm_input, vlm_media, seed, pre_csg_time_steps = dataset[0]
         vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
         result = vlm(**vlm_input, return_dict=True)
@@ -365,7 +368,9 @@ def train_test_helper(
             demos_interval = [demos[idx] for idx in demo_ids[start_idx:end_idx]]
         else:
             demos_interval = [demos[idx] for idx in demo_ids[start_idx:]]
-        dataset = prepare_dataset(device, demos_interval, abstract_history, lowlevel_instr_set, tokenizer)
+        dataset = prepare_dataset(
+            device, demos_interval, abstract_history,
+            lowlevel_instr_set, tokenizer, skip_label)
 
         num_demos = len(dataset)
         for demo_idx in range(num_demos):
