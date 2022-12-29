@@ -77,6 +77,13 @@ def calc_loss_per_subgoal(
     lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
     debug=False, skip_label=-1):
 
+    vlm.to(device)
+    bow_image_conv_encoder.to(device)
+
+    if debug:
+        vlm.eval()
+        bow_image_conv_encoder.eval()
+
     seed = demo[-1]
     losses = []
 
@@ -105,8 +112,12 @@ def calc_loss_per_subgoal(
     for key in csg_texts_tokens:
         csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
     csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
-    with amp.autocast(enabled=True):
-        img_embeds = bow_image_conv_encoder(obss)
+    if debug:
+        with torch.no_grad():
+            img_embeds = bow_image_conv_encoder(obss)
+    else:
+        with amp.autocast(enabled=True):
+            img_embeds = bow_image_conv_encoder(obss)
     num_csgs = len(csg_time_steps)
 
     mission = demo[0][0]['mission']
@@ -138,10 +149,14 @@ def calc_loss_per_subgoal(
         vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, skip_label)
 
         # Calculate the loss and update the model
-        with amp.autocast(enabled=True):
-            result = vlm(**vlm_input, return_dict=True)
-            loss_csg = result['loss']
-            losses.append(loss_csg.item())
+        if debug:
+            with torch.no_grad():
+                result = vlm(**vlm_input, return_dict=True)
+        else:
+            with amp.autocast(enabled=True):
+                result = vlm(**vlm_input, return_dict=True)
+        loss_csg = result['loss']
+        losses.append(loss_csg.item())
         
         # append image embeddings for the next target subgoal if it exist
         input_text_len += subgoal_tokens_len # for the subgoal tokens
@@ -324,6 +339,8 @@ def train_test_helper(
         loss = result['loss']
         msg = "[Unit Test - Loss Compulation Over Trajectory]..."
         msg += f"\nseed: {seed}"
+        msg += f"\ntime steps when a subgoal completes:"
+        msg += f"\n\t{pre_csg_time_steps}"
         msg += f"\ninput_ids ({vlm_input['attention_mask'].sum(-1)}):"
         msg += f"\n\t{vlm_input['input_ids'][0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nmedia_locations:"

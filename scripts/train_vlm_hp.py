@@ -104,6 +104,7 @@ vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+#device = torch.device("cpu")
 # ignored label (token) id that will be not considered when calculting the loss by the VLM
 skip_label = -1
 
@@ -166,6 +167,7 @@ bow_image_conv_encoder = BowImageConvEncoder(
     visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
 lowlevel_instr_set = LowlevelInstrSet()
 vlm.to(device)
+bow_image_conv_encoder.to(device)
 
 parameters = list(vlm.parameters()) + list(bow_image_conv_encoder.parameters())
 optimizer = AdamW(parameters, lr=args.lr) # default lr is 5e-5
