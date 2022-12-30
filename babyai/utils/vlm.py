@@ -79,6 +79,9 @@ def log_losses_stat(fp, losses, t0, epoch_id, is_training):
 #   csg_texts: list of 'csg_text'
 #       csg_text: "completed_subgoal"<image...image>.
 #       The # of 'image' indicates the # of elapsed time steps since the last completed subgoal/mission starts.
+# Note:
+# The format of input sequence to the VLM:
+#   Goal: 'mission'<image>Subgoal 1: 'sg1'<image...image>Subgoal 1 Status: 'status'.Subgoal 2: 'sg2'...
 def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
     # Walk around:
     #   The observation before the time step when a subgoal completes is used to verify the completion
@@ -97,6 +100,7 @@ def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
     if not abstract_history:
         obss = [obs for (obs, _, _, _) in demo[:-2]]
 
+    num_csg = 0
     for t in range(0, total_time_steps):
         completed_subgoals = demo[t][3]
 
@@ -108,12 +112,16 @@ def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
                 obss.append(obs)
                 num_attended_vis_obss = 1
 
-            csg_text = "<"+"image"*num_attended_vis_obss+">"+lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
+            csg_text = "<"+"image"*num_attended_vis_obss+">"
+            if num_csg != 0:
+                csg_text += f"Subgoal {num_csg} Status: Success."
+            csg_text += f"Subgoal {num_csg+1}: {lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)}"
             csg_texts.append(csg_text)
             csg_time_steps.append(time_step)
             pre_csg_time_steps.append(pre_csg_time_step)
             pre_pre_csg_time_step = pre_csg_time_step
             pre_csg_time_step = time_step
+            num_csg += 1
 
         time_step += 1
 
@@ -150,7 +158,7 @@ def calc_loss_per_subgoal(
     num_csgs = len(csg_time_steps)
 
     mission = demo[0][0]['mission']
-    vlm_input = tokenizer([mission], max_length=512, padding="max_length", return_tensors='pt')
+    vlm_input = tokenizer([f"Goal: {mission}"], max_length=512, padding="max_length", return_tensors='pt')
     for key in vlm_input:
         vlm_input[key] = vlm_input[key].to(device)
     pre_input_text_len = vlm_input['attention_mask'].sum(dim=-1)[0] # batch size is 1 here
@@ -251,7 +259,7 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
 
     obss, csg_texts, csg_time_steps, pre_csg_time_steps = prepare_input_seq(demo, abstract_history, lowlevel_instr_set)
     mission = demo[0][0]['mission']
-    input_text_seq = mission + "".join(csg_texts)
+    input_text_seq = f"Goal: {mission}" + "".join(csg_texts)
 
     max_token_seq_len = 512
     vlm_input = tokenizer(input_text_seq, max_length=max_token_seq_len, padding="max_length", return_tensors='pt')
