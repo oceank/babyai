@@ -71,6 +71,54 @@ def log_losses_stat(fp, losses, t0, epoch_id, is_training):
 
     log_msg(fp, msg)
 
+# Output:
+#   obss: list of (critical) observations.
+#       The last observation of a successful trajectory is not saved.
+#       The information of a completed subgoal (at time step t) is saved together with the observation at time step (t-1)
+#   csg_time_steps: list of time steps when a subgoal completes.
+#   csg_texts: list of 'csg_text'
+#       csg_text: "completed_subgoal"<image...image>.
+#       The # of 'image' indicates the # of elapsed time steps since the last completed subgoal/mission starts.
+def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
+    # Walk around:
+    #   The observation before the time step when a subgoal completes is used to verify the completion
+    #   so, currently they are stored together in the collected successful tracjectoies.
+    #   While, in VLM, the observation at the time step when the subgoal actually completes is used as
+    #   a reference point. So, here, add 1 to 'time_step' to walk around this issue.
+    time_step = 1
+    pre_csg_time_step = 0
+    pre_pre_csg_time_step = -1
+    obss = []
+    csg_texts = []
+    csg_time_steps = []
+    pre_csg_time_steps = []
+    total_time_steps = len(demo[:-2]) # 0 based
+
+    if not abstract_history:
+        obss = [obs for (obs, _, _, _) in demo[:-2]]
+
+    for t in range(0, total_time_steps):
+        completed_subgoals = demo[t][3]
+
+        if len(completed_subgoals):
+            # number of elapsed visual observations for completing the previous subgoal 
+            num_attended_vis_obss = pre_csg_time_step - pre_pre_csg_time_step
+            if abstract_history:
+                obs = demo[pre_csg_time_step][0]
+                obss.append(obs)
+                num_attended_vis_obss = 1
+
+            csg_text = "<"+"image"*num_attended_vis_obss+">"+lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
+            csg_texts.append(csg_text)
+            csg_time_steps.append(time_step)
+            pre_csg_time_steps.append(pre_csg_time_step)
+            pre_pre_csg_time_step = pre_csg_time_step
+            pre_csg_time_step = time_step
+
+        time_step += 1
+
+    return  obss, csg_texts, csg_time_steps, pre_csg_time_steps
+
 # Helper function for testing
 def calc_loss_per_subgoal(
     device, demo, abstract_history,
@@ -87,27 +135,8 @@ def calc_loss_per_subgoal(
     seed = demo[-1]
     losses = []
 
-    time_step = 1
-    obss = []
-    csg_texts = []
-    csg_time_steps = []
-    pre_csg_time_step = 0
-    for (obs, _, _, completed_subgoals) in demo[:-2]:
-        if not abstract_history:
-            obss.append(obs)
-        if len(completed_subgoals):
-            focused_time_steps = time_step-pre_csg_time_step
-            if abstract_history:
-                focused_time_steps = 1
-                obss.append(obs)
-            csg_text = "<"+"image"*focused_time_steps+">"+lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
-            csg_texts.append(csg_text)
-            csg_time_steps.append(time_step)
-            pre_csg_time_step = time_step
-        time_step += 1
-    
-    pre_csg_time_steps = [0]
-    pre_csg_time_steps.extend(csg_time_steps[:-1])
+    obss, csg_texts, csg_time_steps, pre_csg_time_steps = prepare_input_seq(demo, abstract_history, lowlevel_instr_set)
+
     csg_texts_tokens = tokenizer(csg_texts, padding=True, return_tensors="pt")
     for key in csg_texts_tokens:
         csg_texts_tokens[key] = csg_texts_tokens[key].to(device)
@@ -121,32 +150,48 @@ def calc_loss_per_subgoal(
     num_csgs = len(csg_time_steps)
 
     mission = demo[0][0]['mission']
-    vlm_input = tokenizer([mission+"<image>"], max_length=512, padding="max_length", return_tensors='pt')
+    vlm_input = tokenizer([mission], max_length=512, padding="max_length", return_tensors='pt')
     for key in vlm_input:
         vlm_input[key] = vlm_input[key].to(device)
-    input_text_len = vlm_input['attention_mask'].sum(dim=-1)[0] # batch size is 1 here
+    pre_input_text_len = vlm_input['attention_mask'].sum(dim=-1)[0] # batch size is 1 here
+
     vlm_input['media_locations'] = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
-    vlm_input['media_locations'][0, [input_text_len-3]] = True # '<image>' (appended to mission) has three tokens
-    vlm_input['image_embeds'] = img_embeds[:, [0], :, :]
 
     if debug:
         label_mask_all_csgs = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
 
-    for idx, pre_csg_time_step, csg_time_step in zip(range(num_csgs), pre_csg_time_steps, csg_time_steps):
-        # accumulate text tokens (target/completed subgoal) and image embedding
-        # passed_steps: focused steps between two adjecent completed subgoals
-        passed_steps = csg_time_step - pre_csg_time_step
-        if abstract_history:
-            passed_steps = 1
-        subgoal_tokens_len = csg_tokens_len[idx]-(2+passed_steps)
-        vlm_input['input_ids'][0, input_text_len:input_text_len+subgoal_tokens_len] = csg_texts_tokens['input_ids'][idx, (2+passed_steps):csg_tokens_len[idx]]
-        vlm_input['attention_mask'][0, input_text_len:input_text_len+subgoal_tokens_len] = 1
-        label_mask = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
-        label_mask[0, input_text_len:input_text_len+subgoal_tokens_len] = True
-        if debug:
-            label_mask_all_csgs[0, input_text_len:input_text_len+subgoal_tokens_len] = True
+    pre_pre_csg_time_step = -1
+    # Calculate the loss of each predicted subgoal by accumulatly preparing the sample input and label
+    #   Sample Input:
+    #       text: '<image...image>" tokens that correspond to previous subgoal or the intial observation
+    #       media: image embedding of the corresponding visual observations
+    #   Sample label: tokens of target/completed subgoal
+    for idx, pre_csg_time_step in zip(range(num_csgs), pre_csg_time_steps):
+        # Setup input ids and attention mask for the sample case of the new subgoal
+        input_text_len = pre_input_text_len + csg_tokens_len[idx]
+        vlm_input['input_ids'][0, pre_input_text_len:input_text_len] = csg_texts_tokens['input_ids'][idx, :csg_tokens_len[idx]]
+        vlm_input['attention_mask'][0, pre_input_text_len:input_text_len] = 1
 
+        # set up labels for the current subgoal
+        num_attended_vis_obss = pre_csg_time_step - pre_pre_csg_time_step
+        if abstract_history:
+            num_attended_vis_obss = 1
+
+        label_mask = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+        label_mask[0, (pre_input_text_len+(2+num_attended_vis_obss)):input_text_len] = True
         vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, skip_label)
+        if debug:
+            label_mask_all_csgs[0, (pre_input_text_len+(2+num_attended_vis_obss)):input_text_len] = True
+
+        # set up media and its locations (that correspond to previous subgoal) that are used to predit the current subgoal
+        current_media_locations = [pre_input_text_len]
+        if abstract_history:
+            vlm_input['image_embeds'] = img_embeds[:, :(idx+1), :, :]
+        else:
+            # Instead of the 1st 'image', '<' in '<image...image>' corresonds to the 1st media location
+            current_media_locations.extend([pre_input_text_len+i for i in range(2, num_attended_vis_obss+1)])
+            vlm_input['image_embeds'] = img_embeds[:, :(pre_csg_time_step+1), :, :]
+        vlm_input['media_locations'][0, current_media_locations] = True
 
         # Calculate the loss and update the model
         if debug:
@@ -158,22 +203,9 @@ def calc_loss_per_subgoal(
         loss_csg = result['loss']
         losses.append(loss_csg.item())
         
-        # append image embeddings for the next target subgoal if it exist
-        input_text_len += subgoal_tokens_len # for the subgoal tokens
-        if idx+1 == num_csgs: # the last completed subgoal has been processed
-            break
-
-        current_media_locations = [input_text_len]
-        if abstract_history:
-            vlm_input['image_embeds'] = img_embeds[:, :(idx+2), :, :]
-        else:
-            current_media_locations.extend([input_text_len+i for i in range(2, passed_steps+1)]) # '<' corresonds to the 1st media location
-            vlm_input['image_embeds'] = img_embeds[:, :(csg_time_step+1), :, :]
-        vlm_input['input_ids'][0, input_text_len:input_text_len+(2+passed_steps)] = csg_texts_tokens['input_ids'][idx, :(2+passed_steps)]
-        vlm_input['attention_mask'][0, input_text_len:input_text_len+(2+passed_steps)] = 1
-        vlm_input['media_locations'][0, current_media_locations] = True
-
-        input_text_len += (2+passed_steps) # for tokens of '<image...image> ' preceding the subgoal
+        # Update some auxilary variables
+        pre_input_text_len = input_text_len
+        pre_pre_csg_time_step = pre_csg_time_step
     
     loss = torch.tensor(losses).mean()
 
@@ -193,7 +225,10 @@ def calc_loss_per_subgoal(
         msg += f"\nall labels:"
         msg += f"\n\t{labels_all_csgs[0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nimage_embeds:"
-        msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
+        if abstract_history:
+            msg += f"\n\t{vlm_input['image_embeds'][0, range(len(pre_csg_time_steps)), 0, 0:4]}"
+        else:            
+            msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
         msg += f"\nloss: {loss}\n"
         print(msg)
 
@@ -214,38 +249,9 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
     seed = demo[-1]
     obss = []
 
-    # Walk around:
-    #   The observation before the time step when a subgoal completes is used to verify the completion
-    #   so, currently they are stored together in the collected successful tracjectoies.
-    #   While, in VLM, the observation at the time step when the subgoal actually completes is used as
-    #   a reference point. So, here, add 1 to 'time_step' to walk around this issue.
-    time_step = 1
-    pre_csg_time_step = 0
-    csg_time_steps = []
+    obss, csg_texts, csg_time_steps, pre_csg_time_steps = prepare_input_seq(demo, abstract_history, lowlevel_instr_set)
     mission = demo[0][0]['mission']
-    input_text_seq = mission+"<image>"
-    pre_last_time_step = len(demo[:-2])-1 # the last observation is not stored in the trajectory
-    for (obs, _, _, completed_subgoals) in demo[:-2]:
-        if not abstract_history:
-            obss.append(obs)
-        if len(completed_subgoals):
-            csg_time_steps.append(time_step)
-            focused_time_steps = time_step-pre_csg_time_step
-            if abstract_history:
-                focused_time_steps = 1
-                # 'obs' represents the observation at 'time_step-1'
-                # The observation when the subgoal completes is at 'time_step'
-                # But the last observation is not needed
-                if pre_csg_time_step!=pre_last_time_step:
-                    obs = demo[time_step][0]
-                obss.append(obs)
-            input_text_seq += lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
-            if pre_csg_time_step!=pre_last_time_step:
-                input_text_seq += "<"+"image"*focused_time_steps+">"
-            pre_csg_time_step = time_step
-        time_step += 1
-    pre_csg_time_steps = [0]
-    pre_csg_time_steps.extend(csg_time_steps[:-1])
+    input_text_seq = mission + "".join(csg_texts)
 
     max_token_seq_len = 512
     vlm_input = tokenizer(input_text_seq, max_length=max_token_seq_len, padding="max_length", return_tensors='pt')
@@ -347,10 +353,13 @@ def train_test_helper(
         msg += f"\n\t{vlm_input['media_locations'][0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nlabels:"
         msg += f"\n\t{vlm_input['labels'][0, 1:vlm_input['attention_mask'].sum(-1)]}"
-        msg += f"\instance_weights:"
+        msg += f"\ninstance_weights:"
         msg += f"\n\t{vlm_input['instance_weights'][0, 1:vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nimage_embeds:"
-        msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
+        if abstract_history:
+            msg += f"\n\t{vlm_input['image_embeds'][0, range(len(pre_csg_time_steps)), 0, 0:4]}"
+        else:            
+            msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
         msg += f"\nloss: {loss.item()}\n"
         print(msg)
 
