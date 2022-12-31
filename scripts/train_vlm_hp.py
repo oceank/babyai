@@ -59,7 +59,8 @@ parser.add_argument("--abstract-history", action="store_true", default=False,
                     help="Allows you to switch between the full history and the abstraction of the full history")
 parser.add_argument("--log-interval", type=int, default=10,
                     help="number of used demonstrations between two logging events during training (default: 10, 0 means no saving)")
-
+parser.add_argument("--debug", action="store_true", default=False,
+                    help="debug the implementation of two loss calculations")
 
 args = parser.parse_args()
 
@@ -73,8 +74,9 @@ if args.abstract_history:
 else:
     model_name_prefix += "_full_" + experiment_datetime
 
-demos_train_set_path = os.path.join(utils.storage_dir(), "trainset.pkl") 
-demos_test_set_path = os.path.join(utils.storage_dir(), "testset.pkl")
+demos_dir = os.path.join(utils.storage_dir(), "demos")
+demos_train_set_path = os.path.join(demos_dir, args.demos_name+"_trainset.pkl") 
+demos_test_set_path = os.path.join(demos_dir, args.demos_name+"_testset.pkl")
 
 if os.path.exists(demos_train_set_path) and os.path.exists(demos_test_set_path):
     demos_train = utils.load_demos(demos_train_set_path)
@@ -104,7 +106,7 @@ vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#device = torch.device("cpu")
+
 # ignored label (token) id that will be not considered when calculting the loss by the VLM
 skip_label = -1
 
@@ -181,8 +183,7 @@ msg = f"Training and testing start..."
 log_msg(training_status_path, msg)
 
 # Test if the two implemnetations of loss calculation over a trajectory are correct
-unit_test = True
-if unit_test:
+if args.debug:
     test_demo_idx = 100
     loss_per_csg_calc = calc_loss_per_subgoal(
         device, demos_train[test_demo_idx], args.abstract_history,
