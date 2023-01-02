@@ -114,8 +114,8 @@ def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
 
             csg_text = "<"+"image"*num_attended_vis_obss+">"
             if num_csg != 0:
-                csg_text += f"Subgoal {num_csg} Status: Success."
-            csg_text += f"Subgoal {num_csg+1}: {lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)}"
+                csg_text += f"[Success]"
+            csg_text += lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
             csg_texts.append(csg_text)
             csg_time_steps.append(time_step)
             pre_csg_time_steps.append(pre_csg_time_step)
