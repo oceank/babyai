@@ -443,18 +443,19 @@ def train_test_helper(
         if is_training and (processed_demos%log_interval==0 or processed_demos==len(demos)):
             log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
 
-        # manage memory
-        del vlm_media
-        del vlm_input
-        del result
-        gc.collect()
-        torch.cuda.empty_cache()
+            # manage memory
+            #del vlm_media
+            #del vlm_input
+            #del result
+            #gc.collect()
+            #torch.cuda.empty_cache()
     
     # logging the testing loss
     if not is_training:
         log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
-        gc.collect()
-        torch.cuda.empty_cache()
+    
+    gc.collect()
+    torch.cuda.empty_cache()
 
     loss_statistics = get_stat(losses, rd=4, return_type='np')
     return loss_statistics
