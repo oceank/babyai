@@ -242,6 +242,9 @@ for epoch_i in range(0, args.epochs):
 
     epoch_train_losses[epoch_i] = tr_losses_stat
     np.save(train_loss_path, epoch_train_losses)
+    # saved the trained model after each epoch
+    torch.save(bow_image_conv_encoder, image_conv_model_path)
+    torch.save(vlm, vlm_model_path)
 
     # Testing
     is_training = False
@@ -267,7 +270,3 @@ for epoch_i in range(0, args.epochs):
         best_test_loss = te_losses_stat[0]
         torch.save(bow_image_conv_encoder, image_conv_model_path_best)
         torch.save(vlm, vlm_model_path_best)
-
-# saved the trained model after the last epoch
-torch.save(bow_image_conv_encoder, image_conv_model_path)
-torch.save(vlm, vlm_model_path)
