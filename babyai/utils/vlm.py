@@ -410,6 +410,8 @@ def train_test_helper(
 
         batch_loss = 0
         num_demos = len(dataset)
+        if is_training:
+            optimizer.zero_grad()
         for demo_idx in range(num_demos):
             vlm_input, vlm_media, seed, pre_csg_time_steps = dataset[demo_idx]
             if is_training:
@@ -431,7 +433,6 @@ def train_test_helper(
         if is_training:
             # update the model(s) after processing a batch of episodes
             batch_loss /= num_demos
-            optimizer.zero_grad()
             batch_loss.backward()
             torch.nn.utils.clip_grad_norm_(vlm.parameters(), max_grad_norm)
             torch.nn.utils.clip_grad_norm_(bow_image_conv_encoder.parameters(), max_grad_norm)
