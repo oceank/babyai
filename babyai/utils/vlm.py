@@ -330,7 +330,8 @@ def train_test_helper(
     optimizer=None,
     max_grad_norm=None,
     debug=False,
-    test_demo_idx=0):
+    test_demo_idx=0,
+    batch_size=1):
 
     vlm.to(device)
     bow_image_conv_encoder.to(device)
@@ -388,24 +389,26 @@ def train_test_helper(
             vlm.eval()
             bow_image_conv_encoder.eval()
             msg = "Testing..."
-    
-    num_log_intervals = len(demos)//log_interval
-    if len(demos)%log_interval != 0:
-        num_log_intervals += 1
+
+    num_batches = len(demos)//batch_size
+    if len(demos)%batch_size != 0:
+        num_batches += 1
 
     log_msg(training_status_path, msg)
 
-    for log_interval_idx in range(num_log_intervals):
-        start_idx = log_interval_idx*log_interval
-        end_idx = (1+log_interval_idx)*log_interval
-        if log_interval_idx+1 != num_log_intervals:
-            demos_interval = [demos[idx] for idx in demo_ids[start_idx:end_idx]]
+    processed_demos = 0
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx*batch_size
+        end_idx = (1+batch_idx)*batch_size
+        if batch_idx+1 != num_batches:
+            demos_to_process = [demos[idx] for idx in demo_ids[start_idx:end_idx]]
         else:
-            demos_interval = [demos[idx] for idx in demo_ids[start_idx:]]
+            demos_to_process = [demos[idx] for idx in demo_ids[start_idx:]]
         dataset = prepare_dataset(
-            device, demos_interval, abstract_history,
+            device, demos_to_process, abstract_history,
             lowlevel_instr_set, tokenizer, skip_label)
 
+        batch_loss = 0
         num_demos = len(dataset)
         for demo_idx in range(num_demos):
             vlm_input, vlm_media, seed, pre_csg_time_steps = dataset[demo_idx]
@@ -415,22 +418,29 @@ def train_test_helper(
                     vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
                     result = vlm(**vlm_input, return_dict=True)
                     loss = result['loss']
-                # update the model(s)
-                optimizer.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(vlm.parameters(), max_grad_norm)
-                torch.nn.utils.clip_grad_norm_(bow_image_conv_encoder.parameters(), max_grad_norm)
-                optimizer.step()
+                    batch_loss += loss
             else:
                 # Calculate the testing loss
                 with torch.no_grad():
                     vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
                     result = vlm(**vlm_input, return_dict=True)
                     loss = result['loss']
+
             losses.append(loss.item())
 
-        # get statistics for each log interval during training
         if is_training:
+            # update the model(s) after processing a batch of episodes
+            batch_loss /= num_demos
+            optimizer.zero_grad()
+            batch_loss.backward()
+            torch.nn.utils.clip_grad_norm_(vlm.parameters(), max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(bow_image_conv_encoder.parameters(), max_grad_norm)
+            optimizer.step()
+
+        processed_demos += num_demos
+
+        # get statistics for each log interval during training
+        if is_training and (processed_demos%log_interval==0 or processed_demos==len(demos)):
             log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
 
         # manage memory
@@ -443,6 +453,8 @@ def train_test_helper(
     # logging the testing loss
     if not is_training:
         log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
+        gc.collect()
+        torch.cuda.empty_cache()
 
     loss_statistics = get_stat(losses, rd=4, return_type='np')
     return loss_statistics

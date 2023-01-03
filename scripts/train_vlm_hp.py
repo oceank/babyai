@@ -59,6 +59,9 @@ parser.add_argument("--abstract-history", action="store_true", default=False,
                     help="Allows you to switch between the full history and the abstraction of the full history")
 parser.add_argument("--log-interval", type=int, default=10,
                     help="number of used demonstrations between two logging events during training (default: 10, 0 means no saving)")
+parser.add_argument("--batch-size", type=int, default=1,
+                    help="number of episodes used during training between each model update (default: 1)")
+
 parser.add_argument("--debug", action="store_true", default=False,
                     help="debug the implementation of two loss calculations")
 
@@ -104,6 +107,11 @@ os.makedirs(model_dir)
 training_status_path = os.path.join(model_dir, "training_status.txt")
 vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
+
+vlm_model_path_init = os.path.join(model_dir, "vlm_init.pt")
+image_conv_model_path_init = os.path.join(model_dir, "image_conv_init.pt")
+vlm_model_path_best = os.path.join(model_dir, "vlm_best.pt")
+image_conv_model_path_best = os.path.join(model_dir, "image_conv_best.pt")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -167,6 +175,8 @@ image_preproc = RawImagePreprocessor()
 visual_observation_bow_flat_dim=147
 bow_image_conv_encoder = BowImageConvEncoder(
     visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
+torch.save(bow_image_conv_encoder, image_conv_model_path_init)
+torch.save(vlm, vlm_model_path_init)
 lowlevel_instr_set = LowlevelInstrSet()
 vlm.to(device)
 bow_image_conv_encoder.to(device)
@@ -206,6 +216,7 @@ if args.debug:
     print(f"loss_over_demo   :{loss_over_demo}")
     print(f"Difference       :{round(loss_per_csg_calc-loss_over_demo, 6)}")
 
+best_test_loss = np.inf
 for epoch_i in range(0, args.epochs):
     msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
     log_msg(training_status_path, msg)
@@ -224,14 +235,13 @@ for epoch_i in range(0, args.epochs):
         tokenizer,
         vlm,
         bow_image_conv_encoder,
-        skip_label,
-        optimizer,
-        args.max_grad_norm)
+        skip_label=skip_label,
+        optimizer=optimizer,
+        max_grad_norm=args.max_grad_norm,
+        batch_size = args.batch_size)
 
     epoch_train_losses[epoch_i] = tr_losses_stat
     np.save(train_loss_path, epoch_train_losses)
-    torch.save(bow_image_conv_encoder, image_conv_model_path)
-    torch.save(vlm, vlm_model_path)
 
     # Testing
     is_training = False
@@ -247,7 +257,17 @@ for epoch_i in range(0, args.epochs):
         tokenizer,
         vlm,
         bow_image_conv_encoder,
-        skip_label)
+        skip_label=skip_label,
+        batch_size=args.batch_size)
 
     epoch_test_losses[epoch_i] = te_losses_stat
     np.save(test_loss_path, epoch_test_losses)
+
+    if best_test_loss > te_losses_stat[0]:
+        best_test_loss = te_losses_stat[0]
+        torch.save(bow_image_conv_encoder, image_conv_model_path_best)
+        torch.save(vlm, vlm_model_path_best)
+
+# saved the trained model after the last epoch
+torch.save(bow_image_conv_encoder, image_conv_model_path)
+torch.save(vlm, vlm_model_path)
