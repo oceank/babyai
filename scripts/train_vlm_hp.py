@@ -70,7 +70,7 @@ args = parser.parse_args()
 # Load the demonstrations and split it into training, validation and testing partitions
 # "--env", "BabyAI-UnlockLocalR2Dist-v0",
 # "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
-model_name_prefix = args.demos_name
+model_name_prefix = args.demos_name + f"_b{args.batch_size}"
 experiment_datetime = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 if args.abstract_history:
     model_name_prefix += "_abstract_" + experiment_datetime
