@@ -403,9 +403,9 @@ def train_test_helper(
         msg += f"\nmedia_locations:"
         msg += f"\n\t{vlm_input['media_locations'][0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nlabels:"
-        msg += f"\n\t{vlm_input['labels'][0, 1:vlm_input['attention_mask'].sum(-1)]}"
+        msg += f"\n\t{vlm_input['labels'][0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\ninstance_weights:"
-        msg += f"\n\t{vlm_input['instance_weights'][0, 1:vlm_input['attention_mask'].sum(-1)]}"
+        msg += f"\n\t{vlm_input['instance_weights'][0, :vlm_input['attention_mask'].sum(-1)]}"
         msg += f"\nimage_embeds:"
         if abstract_history:
             msg += f"\n\t{vlm_input['image_embeds'][0, range(len(pre_csg_time_steps)), 0, 0:4]}"
