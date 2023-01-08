@@ -171,9 +171,10 @@ def calc_loss_per_subgoal(
         label_mask_all_csgs = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
 
     pre_pre_csg_time_step = -1
+    num_tokens_subgoal_status = 3 # Each of '[Success]', '[Failure]' and '[None]' maps to three tokens, '[', Success/Failure/None, ']'
     # Calculate the loss of each predicted subgoal by accumulatly preparing the sample input and label
     #   Sample Input:
-    #       text: '<image...image>" tokens that correspond to previous subgoal or the intial observation
+    #       text: '|image...image|" tokens that correspond to previous subgoal or the intial observation
     #       media: image embedding of the corresponding visual observations
     #   Sample label: tokens of target/completed subgoal
     for idx, pre_csg_time_step in zip(range(num_csgs), pre_csg_time_steps):
@@ -187,11 +188,12 @@ def calc_loss_per_subgoal(
         if abstract_history:
             num_attended_vis_obss = 1
 
+        label_start_idx = pre_input_text_len + (2+num_attended_vis_obss) + num_tokens_subgoal_status
         label_mask = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
-        label_mask[0, (pre_input_text_len+(2+num_attended_vis_obss)):input_text_len] = True
+        label_mask[0, label_start_idx:input_text_len] = True
         vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_mask==0, skip_label)
         if debug:
-            label_mask_all_csgs[0, (pre_input_text_len+(2+num_attended_vis_obss)):input_text_len] = True
+            label_mask_all_csgs[0, label_start_idx:input_text_len] = True
 
         # set up media and its locations (that correspond to previous subgoal) that are used to predit the current subgoal
         current_media_locations = [pre_input_text_len]
