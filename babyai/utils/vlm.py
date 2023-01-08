@@ -112,9 +112,11 @@ def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
                 obss.append(obs)
                 num_attended_vis_obss = 1
 
-            csg_text = "<"+"image"*num_attended_vis_obss+">"
+            csg_text = "|"+"image"*num_attended_vis_obss+"|"
             if num_csg != 0:
                 csg_text += f"[Success]"
+            else:
+                csg_text += "[None]"
             csg_text += lowlevel_instr_set.get_completed_subgoals_msg(completed_subgoals)
             csg_texts.append(csg_text)
             csg_time_steps.append(time_step)
@@ -271,6 +273,43 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
     media_locations = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
     label_masks = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
     instance_weights = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.float, device=device)
+
+    media_seq_open = False
+    media_seq_end = None
+    # |image|: 91,  9060,  91
+    # Subgoal Status: '[Success]', '[Failure]'
+    num_tokens_sugboal_status = 3
+    tidx = 0
+    while tidx < input_token_seq_len:
+        if vlm_input['input_ids'][0, tidx] == 91: # '|'
+            if not media_seq_open:
+                # media_seq_end==None corresponds to the indentification of the first image
+                # That does not have any subgoal completed before it.
+                if media_seq_end is not None:
+                    # store the labels of the passed text section
+                    label_start_indice = media_seq_end+1+num_tokens_sugboal_status
+                    label_masks[0, label_start_indice:tidx] = True
+                    instance_weights[0, label_start_indice:tidx] = 1.0/(tidx-label_start_indice)
+                media_locations[0, tidx] = True
+
+                # by pass the first 'image' token whose media location is being taken charge by
+                # the prefix token, '|'
+                tidx += 1
+                media_seq_open = True
+            else:
+                media_seq_end = tidx
+                media_seq_open = False
+        elif vlm_input['input_ids'][0, tidx] == 9060: # 'image'
+            media_locations[0, tidx] = True
+
+        tidx += 1
+
+    # save the labels of the last subgoal
+    label_start_indice = media_seq_end+1+num_tokens_sugboal_status
+    label_masks[0, label_start_indice:tidx] = True
+    instance_weights[0, label_start_indice:tidx] = 1.0/(tidx-label_start_indice)
+
+    '''
     media_seq_start, media_seq_end = None, None
     # <image>: 27,  9060,    29
     tidx = 0
@@ -298,6 +337,7 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
     # save the labels of the last subgoal
     label_masks[0, (media_seq_end+1):tidx] = True
     instance_weights[0, (media_seq_end+1):tidx] = 1.0/(tidx-media_seq_end-1)
+    '''
 
     vlm_input['media_locations'] = media_locations
     vlm_input['instance_weights'] = instance_weights
