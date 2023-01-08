@@ -70,7 +70,7 @@ args = parser.parse_args()
 # Load the demonstrations and split it into training, validation and testing partitions
 # "--env", "BabyAI-UnlockLocalR2Dist-v0",
 # "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
-model_name_prefix = args.demos_name + f"_b{args.batch_size}"
+model_name_prefix = args.demos_name + f"_b{args.batch_size}_lr{args.lr}"
 experiment_datetime = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 if args.abstract_history:
     model_name_prefix += "_abstract_" + experiment_datetime
@@ -105,6 +105,8 @@ else:
 model_dir = os.path.join(utils.storage_dir(), "models", model_name_prefix)
 os.makedirs(model_dir)
 training_status_path = os.path.join(model_dir, "training_status.txt")
+log_msg(training_status_path, f"Experiment Arguments: {args}\n")
+
 vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
 
