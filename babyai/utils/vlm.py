@@ -313,36 +313,6 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
     label_masks[0, label_start_indice:tidx] = True
     instance_weights[0, label_start_indice:tidx] = 1.0/(tidx-label_start_indice)
 
-    '''
-    media_seq_start, media_seq_end = None, None
-    # <image>: 27,  9060,    29
-    tidx = 0
-    while tidx < input_token_seq_len:
-        if vlm_input['input_ids'][0, tidx] == 27: # '<'
-            # media_seq_end==None corresponds to the indentification of the first image
-            # That does not have any subgoal completed before it.
-            if media_seq_end is not None:
-                # store the labels of the passed text section
-                label_masks[0, (media_seq_end+1):tidx] = True
-                instance_weights[0, (media_seq_end+1):tidx] = 1.0/(tidx-media_seq_end-1)
-            media_locations[0, tidx] = True
-            media_seq_start = tidx
-
-            # by pass the first 'image' token whose media location is being taken charge by
-            # the prefix token, '<'
-            tidx += 1
-        elif vlm_input['input_ids'][0, tidx] == 9060: # 'image'
-            media_locations[0, tidx] = True
-        elif vlm_input['input_ids'][0, tidx] == 29: # '>'
-            media_seq_end = tidx
-
-        tidx += 1
-    
-    # save the labels of the last subgoal
-    label_masks[0, (media_seq_end+1):tidx] = True
-    instance_weights[0, (media_seq_end+1):tidx] = 1.0/(tidx-media_seq_end-1)
-    '''
-
     vlm_input['media_locations'] = media_locations
     vlm_input['instance_weights'] = instance_weights
 
@@ -487,13 +457,6 @@ def train_test_helper(
         # get statistics for each log interval during training
         if is_training and (processed_demos%log_interval==0 or processed_demos==len(demos)):
             log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
-
-            # manage memory
-            #del vlm_media
-            #del vlm_input
-            #del result
-            #gc.collect()
-            #torch.cuda.empty_cache()
     
     # logging the testing loss
     if not is_training:
