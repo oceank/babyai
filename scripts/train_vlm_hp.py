@@ -64,6 +64,8 @@ parser.add_argument("--batch-size", type=int, default=1,
 
 parser.add_argument("--debug", action="store_true", default=False,
                     help="debug the implementation of two loss calculations")
+parser.add_argument("--save-initial-model", action="store_true", default=False,
+                    help="save the initial model to see if the model is learning anything at all")
 
 args = parser.parse_args()
 
@@ -106,14 +108,6 @@ model_dir = os.path.join(utils.storage_dir(), "models", model_name_prefix)
 os.makedirs(model_dir)
 training_status_path = os.path.join(model_dir, "training_status.txt")
 log_msg(training_status_path, f"Experiment Arguments: {args}\n")
-
-vlm_model_path = os.path.join(model_dir, "vlm.pt")
-image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
-
-vlm_model_path_init = os.path.join(model_dir, "vlm_init.pt")
-image_conv_model_path_init = os.path.join(model_dir, "image_conv_init.pt")
-vlm_model_path_best = os.path.join(model_dir, "vlm_best.pt")
-image_conv_model_path_best = os.path.join(model_dir, "image_conv_best.pt")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -177,8 +171,17 @@ image_preproc = RawImagePreprocessor()
 visual_observation_bow_flat_dim=147
 bow_image_conv_encoder = BowImageConvEncoder(
     visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
-torch.save(bow_image_conv_encoder, image_conv_model_path_init)
-torch.save(vlm, vlm_model_path_init)
+
+vlm_model_path = os.path.join(model_dir, "vlm.pt")
+image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
+vlm_model_path_best = os.path.join(model_dir, "vlm_best.pt")
+image_conv_model_path_best = os.path.join(model_dir, "image_conv_best.pt")
+if args.save_initial_model:
+    vlm_model_path_init = os.path.join(model_dir, "vlm_init.pt")
+    image_conv_model_path_init = os.path.join(model_dir, "image_conv_init.pt")
+    torch.save(bow_image_conv_encoder, image_conv_model_path_init)
+    torch.save(vlm, vlm_model_path_init)
+
 lowlevel_instr_set = LowlevelInstrSet()
 vlm.to(device)
 bow_image_conv_encoder.to(device)
