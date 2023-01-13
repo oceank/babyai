@@ -64,6 +64,11 @@ parser.add_argument("--batch-size", type=int, default=1,
 
 parser.add_argument("--debug", action="store_true", default=False,
                     help="debug the implementation of two loss calculations")
+parser.add_argument("--unit-test-case", type=int, default=0,
+                    help=f"test case id. 0 indicates to run all test cases. Unit tests will only run when 'debug' is set." +
+                        "\n\t1: test_loss_cal_by_subgoal_vs_episode" +
+                        "\n\t2: test_loss_cal_by_episode_vs_batch"
+                    )
 parser.add_argument("--save-initial-model", action="store_true", default=False,
                     help="save the initial model to see if the model is learning anything at all")
 
@@ -197,11 +202,17 @@ test_loss_path = os.path.join(model_dir, "test_loss.npy")
 msg = f"Training and testing start..."
 log_msg(training_status_path, msg)
 
-# Test if the two implemnetations of loss calculation over a trajectory are correct
-if args.debug:
-    test_demo_idx = 100
+# Total number of available unit tests
+num_unit_test_case = 2
+# Test Case 1: test if the two implemnetations of loss calculation over a trajectory are correct
+def unit_test_loss_cal_by_subgoal_vs_episode(
+    test_demo_idx, device, demos, abstract_history,
+    lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+    skip_label, training_status_path
+):
+
     loss_per_csg_calc = calc_loss_per_subgoal(
-        device, demos_train[test_demo_idx], args.abstract_history,
+        device, demos[test_demo_idx], abstract_history,
         lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
         debug=True, skip_label=skip_label)
     loss_per_csg_calc = loss_per_csg_calc.item()
@@ -211,8 +222,8 @@ if args.debug:
     log_interval = 1
     loss_over_demo = train_test_helper(
         device, is_training, training_status_path, epoch_i,
-        demos_train,
-        log_interval, args.abstract_history,
+        demos,
+        log_interval, abstract_history,
         lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
         skip_label, optimizer, args.max_grad_norm,
         debug = True, test_demo_idx=test_demo_idx)
@@ -220,6 +231,21 @@ if args.debug:
     print(f"loss_per_csg_calc:{loss_per_csg_calc}")
     print(f"loss_over_demo   :{loss_over_demo}")
     print(f"Difference       :{round(loss_per_csg_calc-loss_over_demo, 6)}")
+
+
+if args.debug:
+    if args.unit_test_case==0:
+        test_cases = range(1, num_unit_test_case+1)
+    else:
+        test_cases = [args.unit_test_case]
+    
+    for test_case_id in test_cases:
+        if test_case_id == 1:
+            test_demo_idx = 100
+            unit_test_loss_cal_by_subgoal_vs_episode(
+                test_demo_idx, device, demos_train, args.abstract_history,
+                lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+                skip_label, training_status_path)
 
 best_test_loss = np.inf
 for epoch_i in range(0, args.epochs):
