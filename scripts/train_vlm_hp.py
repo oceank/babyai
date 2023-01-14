@@ -28,7 +28,7 @@ from torch.optim import AdamW
 
 import babyai.utils as utils
 from babyai.utils.format import RawImagePreprocessor
-from babyai.utils.vlm import BowImageConvEncoder, train_test_helper, log_msg, calc_loss_per_subgoal
+from babyai.utils.vlm import BowImageConvEncoder, train_test_helper, log_msg, calc_loss_per_subgoal, train_test_helper_batch_process, num_unit_test_case, unit_test_loss_cal_by_subgoal_vs_episode, unit_test_loss_cal_by_episode_vs_batch
 from babyai.levels.verifier import LowlevelInstrSet
 
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
@@ -202,37 +202,6 @@ test_loss_path = os.path.join(model_dir, "test_loss.npy")
 msg = f"Training and testing start..."
 log_msg(training_status_path, msg)
 
-# Total number of available unit tests
-num_unit_test_case = 2
-# Test Case 1: test if the two implemnetations of loss calculation over a trajectory are correct
-def unit_test_loss_cal_by_subgoal_vs_episode(
-    test_demo_idx, device, demos, abstract_history,
-    lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-    skip_label, training_status_path
-):
-
-    loss_per_csg_calc = calc_loss_per_subgoal(
-        device, demos[test_demo_idx], abstract_history,
-        lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-        debug=True, skip_label=skip_label)
-    loss_per_csg_calc = loss_per_csg_calc.item()
-
-    is_training = False
-    epoch_i = 0
-    log_interval = 1
-    loss_over_demo = train_test_helper(
-        device, is_training, training_status_path, epoch_i,
-        demos,
-        log_interval, abstract_history,
-        lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-        skip_label, optimizer, args.max_grad_norm,
-        debug = True, test_demo_idx=test_demo_idx)
-    print("[Unit Test: Summary")
-    print(f"loss_per_csg_calc:{loss_per_csg_calc}")
-    print(f"loss_over_demo   :{loss_over_demo}")
-    print(f"Difference       :{round(loss_per_csg_calc-loss_over_demo, 6)}")
-
-
 if args.debug:
     if args.unit_test_case==0:
         test_cases = range(1, num_unit_test_case+1)
@@ -246,58 +215,65 @@ if args.debug:
                 test_demo_idx, device, demos_train, args.abstract_history,
                 lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
                 skip_label, training_status_path)
+        elif test_case_id == 2:
+            test_demo_ids = [0, 1]
+            unit_test_loss_cal_by_episode_vs_batch(
+                test_demo_ids, device, demos_train, args.abstract_history,
+                lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+                skip_label, training_status_path
+            )
+else:
+    best_test_loss = np.inf
+    for epoch_i in range(0, args.epochs):
+        msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
+        log_msg(training_status_path, msg)
 
-best_test_loss = np.inf
-for epoch_i in range(0, args.epochs):
-    msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
-    log_msg(training_status_path, msg)
+        # Training
+        is_training = True
+        tr_losses_stat = train_test_helper_batch_process(
+            device,
+            is_training,
+            training_status_path,
+            epoch_i,
+            demos_train,
+            args.log_interval,
+            args.abstract_history,
+            lowlevel_instr_set,
+            tokenizer,
+            vlm,
+            bow_image_conv_encoder,
+            skip_label=skip_label,
+            optimizer=optimizer,
+            max_grad_norm=args.max_grad_norm,
+            batch_size=args.batch_size)
 
-    # Training
-    is_training = True
-    tr_losses_stat = train_test_helper(
-        device,
-        is_training,
-        training_status_path,
-        epoch_i,
-        demos_train,
-        args.log_interval,
-        args.abstract_history,
-        lowlevel_instr_set,
-        tokenizer,
-        vlm,
-        bow_image_conv_encoder,
-        skip_label=skip_label,
-        optimizer=optimizer,
-        max_grad_norm=args.max_grad_norm,
-        batch_size = args.batch_size)
+        epoch_train_losses[epoch_i] = tr_losses_stat
+        np.save(train_loss_path, epoch_train_losses)
+        # saved the trained model after each epoch
+        torch.save(bow_image_conv_encoder, image_conv_model_path)
+        torch.save(vlm, vlm_model_path)
 
-    epoch_train_losses[epoch_i] = tr_losses_stat
-    np.save(train_loss_path, epoch_train_losses)
-    # saved the trained model after each epoch
-    torch.save(bow_image_conv_encoder, image_conv_model_path)
-    torch.save(vlm, vlm_model_path)
+        # Testing
+        is_training = False
+        te_losses_stat = train_test_helper_batch_process(
+            device,
+            is_training,
+            training_status_path,
+            epoch_i,
+            demos_test,
+            args.log_interval,
+            args.abstract_history,
+            lowlevel_instr_set,
+            tokenizer,
+            vlm,
+            bow_image_conv_encoder,
+            skip_label=skip_label,
+            batch_size=args.batch_size)
 
-    # Testing
-    is_training = False
-    te_losses_stat = train_test_helper(
-        device,
-        is_training,
-        training_status_path,
-        epoch_i,
-        demos_test,
-        args.log_interval,
-        args.abstract_history,
-        lowlevel_instr_set,
-        tokenizer,
-        vlm,
-        bow_image_conv_encoder,
-        skip_label=skip_label,
-        batch_size=args.batch_size)
+        epoch_test_losses[epoch_i] = te_losses_stat
+        np.save(test_loss_path, epoch_test_losses)
 
-    epoch_test_losses[epoch_i] = te_losses_stat
-    np.save(test_loss_path, epoch_test_losses)
-
-    if best_test_loss > te_losses_stat[0]:
-        best_test_loss = te_losses_stat[0]
-        torch.save(bow_image_conv_encoder, image_conv_model_path_best)
-        torch.save(vlm, vlm_model_path_best)
+        if best_test_loss > te_losses_stat[0]:
+            best_test_loss = te_losses_stat[0]
+            torch.save(bow_image_conv_encoder, image_conv_model_path_best)
+            torch.save(vlm, vlm_model_path_best)

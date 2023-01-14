@@ -34,11 +34,11 @@ class BowImageConvEncoder(nn.Module):
         self.image_conv.to(device)
     
     def forward(self, obss):
-        batch_size = 1
-        images = self.image_preproc(obss, device=self.device)
-        images = images.unsqueeze(dim=0)
-        images = rearrange(images, 'b t h w c -> (b t) c h w')
-        image_embeds = self.image_conv(images)
+        batch_size = len(obss)
+        list_of_obss_per_epsiode = [self.image_preproc(obss_per_episode, device=self.device) for obss_per_episode in obss]
+        image_tensors = torch.stack(list_of_obss_per_epsiode, dim=0)
+        image_tensors = rearrange(image_tensors, 'b t h w c -> (b t) c h w')
+        image_embeds = self.image_conv(image_tensors)
         # convert to the shape : (batch_size, times, height*width, feature_dim)
         image_embeds = rearrange(image_embeds, '(b t) d h w-> b t (h w) d', b=batch_size)
         return image_embeds
@@ -51,7 +51,11 @@ def log_msg(fp, msg, logging_mode='a'):
     with open(fp, logging_mode) as f:
         f.write(msg + "\n")
 
-def get_stat(arr, rd=4, return_type='plain'):
+# Input:
+#   arr: a list of numbers
+def get_stat(arr, rd=6, return_type='plain'):
+    assert isinstance(arr, list)
+
     ave = round(np.mean(arr),rd)
     std = round(np.std(arr), rd)
     max = round(np.max(arr), rd)
@@ -61,8 +65,8 @@ def get_stat(arr, rd=4, return_type='plain'):
     else:
         return ave, std, max, min
 
-def log_losses_stat(fp, losses, t0, epoch_id, is_training):
-    avg_loss, std_loss, max_loss, min_loss = get_stat(losses)
+def log_losses_stat(fp, losses, t0, epoch_id, is_training, rd=6):
+    avg_loss, std_loss, max_loss, min_loss = get_stat(losses, rd=rd)
     time_elapse = format_time(time.time() - t0)
     msg = f"[epoch {epoch_id+1}/demos {len(losses)}/time {time_elapse}] "
     if is_training:
@@ -79,11 +83,11 @@ def log_losses_stat(fp, losses, t0, epoch_id, is_training):
 #       The information of a completed subgoal (at time step t) is saved together with the observation at time step (t-1)
 #   csg_time_steps: list of time steps when a subgoal completes.
 #   csg_texts: list of 'csg_text'
-#       csg_text: "completed_subgoal"<image...image>.
+#       csg_text: "completed_subgoal"|image...image|.
 #       The # of 'image' indicates the # of elapsed time steps since the last completed subgoal/mission starts.
 # Note:
 # The format of input sequence to the VLM:
-#   Goal: 'mission'<image>Subgoal 1: 'sg1'<image...image>Subgoal 1 Status: 'status'.Subgoal 2: 'sg2'...
+#   Goal: 'mission'|image|[None]'sg1'|image...image|[Success]'sg2'...
 def prepare_input_seq(demo, abstract_history, lowlevel_instr_set):
     # Walk around:
     #   The observation before the time step when a subgoal completes is used to verify the completion
@@ -155,10 +159,10 @@ def calc_loss_per_subgoal(
     csg_tokens_len = csg_texts_tokens['attention_mask'].sum(dim=-1)
     if debug:
         with torch.no_grad():
-            img_embeds = bow_image_conv_encoder(obss)
+            img_embeds = bow_image_conv_encoder([obss])
     else:
         with amp.autocast(enabled=True):
-            img_embeds = bow_image_conv_encoder(obss)
+            img_embeds = bow_image_conv_encoder([obss])
     num_csgs = len(csg_time_steps)
 
     mission = demo[0][0]['mission']
@@ -179,6 +183,7 @@ def calc_loss_per_subgoal(
     #       text: '|image...image|" tokens that correspond to previous subgoal or the intial observation
     #       media: image embedding of the corresponding visual observations
     #   Sample label: tokens of target/completed subgoal
+    loss = 0
     for idx, pre_csg_time_step in zip(range(num_csgs), pre_csg_time_steps):
         # Setup input ids and attention mask for the sample case of the new subgoal
         input_text_len = pre_input_text_len + csg_tokens_len[idx]
@@ -202,26 +207,26 @@ def calc_loss_per_subgoal(
         if abstract_history:
             vlm_input['image_embeds'] = img_embeds[:, :(idx+1), :, :]
         else:
-            # Instead of the 1st 'image', '<' in '<image...image>' corresonds to the 1st media location
+            # Instead of the 1st 'image', '|' in '|image...image|' corresonds to the 1st media location
             current_media_locations.extend([pre_input_text_len+i for i in range(2, num_attended_vis_obss+1)])
             vlm_input['image_embeds'] = img_embeds[:, :(pre_csg_time_step+1), :, :]
         vlm_input['media_locations'][0, current_media_locations] = True
 
-        # Calculate the loss and update the model
-        if debug:
-            with torch.no_grad():
-                result = vlm(**vlm_input, return_dict=True)
-        else:
-            with amp.autocast(enabled=True):
-                result = vlm(**vlm_input, return_dict=True)
+        # Calculate the loss
+        with torch.no_grad() if debug else amp.autocast(enabled=True):
+            result = vlm(**vlm_input, return_dict=True)
+
         loss_csg = result['loss']
         losses.append(loss_csg.item())
+        loss += loss_csg
         
         # Update some auxilary variables
         pre_input_text_len = input_text_len
         pre_pre_csg_time_step = pre_csg_time_step
-    
-    loss = torch.tensor(losses).mean()
+
+    # the average loss cross all subgoals.
+    # It is a tensor that is used to update the model when in training mode
+    loss = loss/num_csgs
 
     if debug:
         labels_all_csgs = vlm_input['input_ids'].masked_fill(label_mask_all_csgs==0, skip_label)
@@ -243,7 +248,7 @@ def calc_loss_per_subgoal(
             msg += f"\n\t{vlm_input['image_embeds'][0, range(len(pre_csg_time_steps)), 0, 0:4]}"
         else:            
             msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
-        msg += f"\nloss: {loss}\n"
+        msg += f"\nloss: {loss.item()}\n"
         print(msg)
 
     del vlm_input
@@ -283,40 +288,40 @@ def prepare_vlm_input_per_demo(device, demo, abstract_history, lowlevel_instr_se
     # |image|: 91,  9060,  91
     # Subgoal Status: '[Success]', '[Failure]'
     num_tokens_sugboal_status = 3
-    tidx = 0
-    while tidx < input_token_seq_len:
-        if vlm_input['input_ids'][0, tidx] == 91: # '|'
+    t_idx = 0
+    while t_idx < input_token_seq_len:
+        if vlm_input['input_ids'][0, t_idx] == 91: # '|'
             if not media_seq_open:
                 # media_seq_end==None corresponds to the indentification of the first image
                 # That does not have any subgoal completed before it.
                 if media_seq_end is not None:
                     # store the labels of the passed text section
                     label_start_indice = media_seq_end+1+num_tokens_sugboal_status
-                    label_masks[0, label_start_indice:tidx] = True
-                    instance_weights[0, label_start_indice:tidx] = 1.0/(tidx-label_start_indice)
-                media_locations[0, tidx] = True
+                    label_masks[0, label_start_indice:t_idx] = True
+                    instance_weights[0, label_start_indice:t_idx] = 1.0/(t_idx-label_start_indice)
+                media_locations[0, t_idx] = True
 
                 # by pass the first 'image' token whose media location is being taken charge by
                 # the prefix token, '|'
-                tidx += 1
+                t_idx += 1
                 media_seq_open = True
             else:
-                media_seq_end = tidx
+                media_seq_end = t_idx
                 media_seq_open = False
-        elif vlm_input['input_ids'][0, tidx] == 9060: # 'image'
-            media_locations[0, tidx] = True
+        elif vlm_input['input_ids'][0, t_idx] == 9060: # 'image'
+            media_locations[0, t_idx] = True
 
-        tidx += 1
+        t_idx += 1
 
     # save the labels of the last subgoal
     label_start_indice = media_seq_end+1+num_tokens_sugboal_status
-    label_masks[0, label_start_indice:tidx] = True
-    instance_weights[0, label_start_indice:tidx] = 1.0/(tidx-label_start_indice)
+    label_masks[0, label_start_indice:t_idx] = True
+    instance_weights[0, label_start_indice:t_idx] = 1.0/(t_idx-label_start_indice)
 
     vlm_input['media_locations'] = media_locations
     vlm_input['instance_weights'] = instance_weights
 
-    vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_masks==0, skip_label)        
+    vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_masks==0, skip_label)
 
     return vlm_input, obss, seed, pre_csg_time_steps
 
@@ -363,28 +368,16 @@ def train_test_helper(
             device, test_demo, abstract_history,
             lowlevel_instr_set, tokenizer, skip_label)
         vlm_input, vlm_media, seed, pre_csg_time_steps = dataset[0]
-        vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
-        result = vlm(**vlm_input, return_dict=True)
-        loss = result['loss']
-        msg = "[Unit Test - Loss Compulation Over Trajectory]..."
-        msg += f"\nseed: {seed}"
-        msg += f"\ntime steps when a subgoal completes:"
-        msg += f"\n\t{pre_csg_time_steps}"
-        msg += f"\ninput_ids ({vlm_input['attention_mask'].sum(-1)}):"
-        msg += f"\n\t{vlm_input['input_ids'][0, :vlm_input['attention_mask'].sum(-1)]}"
-        msg += f"\nmedia_locations:"
-        msg += f"\n\t{vlm_input['media_locations'][0, :vlm_input['attention_mask'].sum(-1)]}"
-        msg += f"\nlabels:"
-        msg += f"\n\t{vlm_input['labels'][0, :vlm_input['attention_mask'].sum(-1)]}"
-        msg += f"\ninstance_weights:"
-        msg += f"\n\t{vlm_input['instance_weights'][0, :vlm_input['attention_mask'].sum(-1)]}"
-        msg += f"\nimage_embeds:"
-        if abstract_history:
-            msg += f"\n\t{vlm_input['image_embeds'][0, range(len(pre_csg_time_steps)), 0, 0:4]}"
-        else:            
-            msg += f"\n\t{vlm_input['image_embeds'][0, pre_csg_time_steps, 0, 0:4]}"
-        msg += f"\nloss: {loss.item()}\n"
-        print(msg)
+
+        with torch.no_grad():
+            image_embeds = bow_image_conv_encoder([vlm_media])
+            vlm_input['image_embeds'] = image_embeds
+            result = vlm(**vlm_input, return_dict=True)
+            loss = result['loss']
+
+        msg_prefix = "[Unit Test: Loss Compulation Over Trajectory]"
+        cri_obs_emb_indices_to_check = range(4)
+        unit_test_log_helper(msg_prefix, vlm_input, [seed], [pre_csg_time_steps], [loss], cri_obs_emb_indices_to_check, abstract_history)
 
         # manage memory
         del vlm_media
@@ -422,26 +415,18 @@ def train_test_helper(
             device, demos_to_process, abstract_history,
             lowlevel_instr_set, tokenizer, skip_label)
 
-        batch_loss = 0
+        batch_loss = 0 # only used for training
         num_demos = len(dataset)
         if is_training:
             optimizer.zero_grad()
         for demo_idx in range(num_demos):
             vlm_input, vlm_media, seed, pre_csg_time_steps = dataset[demo_idx]
-            if is_training:
-                # Calculate the training loss
-                with amp.autocast(enabled=True):
-                    vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
-                    result = vlm(**vlm_input, return_dict=True)
-                    loss = result['loss']
-                    batch_loss += loss
-            else:
-                # Calculate the testing loss
-                with torch.no_grad():
-                    vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
-                    result = vlm(**vlm_input, return_dict=True)
-                    loss = result['loss']
-
+            # Calculate the loss
+            with amp.autocast(enabled=True) if is_training else torch.no_grad():
+                vlm_input['image_embeds'] = bow_image_conv_encoder([vlm_media])
+                result = vlm(**vlm_input, return_dict=True)
+                loss = result['loss']
+                batch_loss += loss
             losses.append(loss.item())
 
         if is_training:
@@ -456,18 +441,256 @@ def train_test_helper(
 
         # get statistics for each log interval during training
         if is_training and (processed_demos%log_interval==0 or processed_demos==len(demos)):
-            log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
+            log_losses_stat(training_status_path, losses, t0, epoch_id, is_training, rd=6)
     
     # logging the testing loss
     if not is_training:
-        log_losses_stat(training_status_path, losses, t0, epoch_id, is_training)
+        log_losses_stat(training_status_path, losses, t0, epoch_id, is_training, rd=6)
     
     gc.collect()
     torch.cuda.empty_cache()
 
-    loss_statistics = get_stat(losses, rd=4, return_type='np')
+    loss_statistics = get_stat(losses, rd=6, return_type='np')
     return loss_statistics
 
+# Prepare the vlm input for one batch of expisodes
+def prepare_vlm_input_per_batch(device, demos, abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1):
+
+    seeds = []
+    all_obss = []
+    all_pre_csg_time_steps = []
+    input_text_seqs = []
+    batch_size = len(demos)
+
+    # Parse all episodes in the bach
+    for demo in demos:
+        obss, csg_texts, csg_time_steps, pre_csg_time_steps = prepare_input_seq(demo, abstract_history, lowlevel_instr_set)
+        mission = demo[0][0]['mission']
+        input_text_seq = f"Goal: {mission}" + "".join(csg_texts)
+
+        all_obss.append(obss)
+        all_pre_csg_time_steps.append(pre_csg_time_steps)
+        input_text_seqs.append(input_text_seq)
+        seeds.append(demo[-1])
+
+    max_token_seq_len = 512 # TBD: use for testing. will remove later
+    vlm_input = tokenizer(input_text_seqs, max_length=max_token_seq_len, padding="max_length", return_tensors='pt')
+    for key in vlm_input:
+        vlm_input[key] = vlm_input[key].to(device)
+
+    input_token_seq_lens = vlm_input['attention_mask'].sum(dim=-1)
+
+    # Compute media_locations, labels, instance_weights
+    media_locations = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+    label_masks = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+    instance_weights = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.float, device=device)
+
+    # ToDO:
+    # sym_bar_locations = (vlm_input['input_ids'] == 91) # '|'
+    # use sym_bar_locations to facilite the identification of the start and end of the media sequence
+    for b_idx in range(batch_size):
+        media_seq_open = False
+        media_seq_end = None
+        # |image|: 91,  9060,  91
+        # Subgoal Status: '[Success]', '[Failure]'
+        num_tokens_sugboal_status = 3
+        t_idx = 0
+        while t_idx < input_token_seq_lens[b_idx]:
+            if vlm_input['input_ids'][b_idx, t_idx] == 91: # token 91 indicatas a '|'
+                if not media_seq_open:
+                    # media_seq_end==None corresponds to the indentification of the first image
+                    # That does not have any subgoal completed before it.
+                    if media_seq_end is not None:
+                        # store the labels of the passed text section
+                        label_start_indice = media_seq_end+1+num_tokens_sugboal_status
+                        label_masks[b_idx, label_start_indice:t_idx] = True
+                        instance_weights[b_idx, label_start_indice:t_idx] = 1.0/(t_idx-label_start_indice)
+                    media_locations[b_idx, t_idx] = True
+
+                    # by pass the first 'image' token whose media location is being taken charge by
+                    # the prefix token, '|'
+                    t_idx += 1
+                    media_seq_open = True
+                else:
+                    media_seq_end = t_idx
+                    media_seq_open = False
+            elif vlm_input['input_ids'][b_idx, t_idx] == 9060: # 'image'
+                media_locations[0, t_idx] = True
+
+            t_idx += 1
+
+        # save the labels of the last subgoal
+        label_start_indice = media_seq_end+1+num_tokens_sugboal_status
+        label_masks[b_idx, label_start_indice:t_idx] = True
+        instance_weights[b_idx, label_start_indice:t_idx] = 1.0/(t_idx-label_start_indice)
+
+
+    vlm_input['media_locations'] = media_locations
+    vlm_input['instance_weights'] = instance_weights
+
+    vlm_input['labels'] = vlm_input['input_ids'].masked_fill(label_masks==0, skip_label)
+
+    # conduct image padding for each episode when necessary
+    max_num_images = max([len(obss) for obss in all_obss])
+    for obss in all_obss:
+        if len(obss) < max_num_images:
+            obs_padding = {
+                'image': np.zeros(obss[0]['image'].shape, dtype=np.uint8),
+                'direction':0,
+                'mission':obss[0]['mission']
+            }
+            obss.extend([obs_padding]*(max_num_images-len(obss)))
+
+    return vlm_input, all_obss, seeds, all_pre_csg_time_steps
+
+
+def unit_test_log_helper(msg_prefix, vlm_input, seeds, all_pre_csg_time_steps, losses, cri_obs_emb_indices_to_check, abstract_history):
+    input_ids_lens = vlm_input['attention_mask'].sum(-1)
+    num_episodes = len(seeds)
+    msg = msg_prefix
+    for ep_idx, seed, pre_csg_time_steps, input_ids_len, loss in zip(range(num_episodes), seeds, all_pre_csg_time_steps, input_ids_lens, losses):
+        msg += f"\nEpisode {ep_idx+1}: Seed {seed}"
+        msg += f"\ntime steps when a subgoal completes (exlcuding the last subgoal):"
+        msg += f"\n\t{pre_csg_time_steps}"
+        msg += f"\ninput_ids ({input_ids_len}):"
+        msg += f"\n\t{vlm_input['input_ids'][ep_idx, :input_ids_len]}"
+        msg += f"\nmedia_locations:"
+        msg += f"\n\t{vlm_input['media_locations'][ep_idx, :input_ids_len]}"
+        msg += f"\nlabels:"
+        msg += f"\n\t{vlm_input['labels'][ep_idx, :input_ids_len]}"
+        msg += f"\ninstance_weights:"
+        msg += f"\n\t{vlm_input['instance_weights'][ep_idx, :input_ids_len]}"
+        msg += f"\nimage_embeds:"
+        if abstract_history:
+            msg += f"\n\t{vlm_input['image_embeds'][ep_idx, range(len(pre_csg_time_steps)), 0, :][:, cri_obs_emb_indices_to_check]}"
+        else: 
+            msg += f"\n\t{vlm_input['image_embeds'][ep_idx, pre_csg_time_steps, 0, :][:, cri_obs_emb_indices_to_check]}"
+        msg += f"\nloss: {loss.item()}\n"
+    print(msg)
+
+def train_test_helper_batch_process(
+    device,
+    is_training,
+    training_status_path,
+    epoch_id,
+    demos,
+    log_interval,
+    abstract_history,
+    lowlevel_instr_set,
+    tokenizer,
+    vlm,
+    bow_image_conv_encoder,
+    skip_label=-1,
+    optimizer=None,
+    max_grad_norm=None,
+    debug=False,
+    test_demo_ids=[],
+    batch_size=1):
+
+    vlm.to(device)
+    bow_image_conv_encoder.to(device)
+
+    msg = ""
+    t0 = time.time()
+    losses=None
+
+    demo_ids = np.arange(0, len(demos))
+    if debug:
+        vlm.eval()
+        bow_image_conv_encoder.eval()
+        test_demos = [demos[i] for i in test_demo_ids]
+
+        vlm_input, vlm_media, seeds, all_pre_csg_time_steps = prepare_vlm_input_per_batch(
+            device, test_demos, abstract_history,
+            lowlevel_instr_set, tokenizer, skip_label)
+
+        # Calculate the batch loss
+        with torch.no_grad():
+            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
+            result = vlm(**vlm_input, return_dict=True)
+            losses = result['loss']
+
+        msg_prefix = "[Unit Test: verify losses calculated in a batch processing mode]"
+        cri_obs_emb_indices_to_check = range(4)
+        unit_test_log_helper(msg_prefix, vlm_input, seeds, all_pre_csg_time_steps, losses, cri_obs_emb_indices_to_check, abstract_history)
+
+        # manage memory
+        del vlm_media
+        del vlm_input
+        del result
+        gc.collect()
+        torch.cuda.empty_cache()
+        return losses
+    else:
+        if is_training: # training
+            demo_ids = np.random.permutation(demo_ids)
+            vlm.train()
+            bow_image_conv_encoder.train()
+            msg = "Training..."
+        else: # testing
+            vlm.eval()
+            bow_image_conv_encoder.eval()
+            msg = "Testing..."
+
+    num_batches = len(demos)//batch_size
+    if len(demos)%batch_size != 0:
+        num_batches += 1
+
+    log_msg(training_status_path, msg)
+
+    processed_demos = 0
+    for batch_idx in range(num_batches):
+        start_idx = batch_idx*batch_size
+        end_idx = (1+batch_idx)*batch_size
+        if batch_idx+1 != num_batches:
+            demos_to_process = [demos[idx] for idx in demo_ids[start_idx:end_idx]]
+        else:
+            demos_to_process = [demos[idx] for idx in demo_ids[start_idx:]]
+
+        dataset = prepare_vlm_input_per_batch(
+            device, demos_to_process, abstract_history,
+            lowlevel_instr_set, tokenizer, skip_label)
+        num_demos = len(demos_to_process)
+        vlm_input, vlm_media, seeds, all_pre_csg_time_steps = dataset
+
+        # Calculate the batch loss
+        if is_training:
+            optimizer.zero_grad()
+        with amp.autocast(enabled=True) if is_training else torch.no_grad():
+            vlm_input['image_embeds'] = bow_image_conv_encoder(vlm_media)
+            result = vlm(**vlm_input, return_dict=True)
+            batch_loss = result['loss']
+
+        if losses is not None:
+            losses.extend(batch_loss.detach().clone().tolist())
+        else:
+            losses = batch_loss.detach().clone().tolist()
+
+        if is_training:
+            # update the model(s) after processing a batch of episodes
+            loss = batch_loss.mean()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(vlm.parameters(), max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(bow_image_conv_encoder.parameters(), max_grad_norm)
+            optimizer.step()
+
+        processed_demos += num_demos
+
+        # get statistics for each log interval during training
+        if is_training and (processed_demos%log_interval==0 or processed_demos==len(demos)):
+            log_losses_stat(training_status_path, losses, t0, epoch_id, is_training, rd=6)
+    
+    # logging the testing loss
+    if not is_training:
+        log_losses_stat(training_status_path, losses, t0, epoch_id, is_training, rd=6)
+    
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    loss_statistics = get_stat(losses, rd=6, return_type='np')
+    return loss_statistics
+
+# Utility functions for checking experiment results
 def load_losses(models_dir, exp_name):
 
     train_loss_fn = "train_loss.npy"
@@ -529,7 +752,7 @@ def test_subgoal_generation(demo, vlm, img_encoder, device, abstract_history, lo
     pre_pre_csg_time_step = -1
     # Calculate the loss of each predicted subgoal by accumulatly preparing the sample input and label
     #   Sample Input:
-    #       text: '<image...image>" tokens that correspond to previous subgoal or the intial observation
+    #       text: '|image...image|" tokens that correspond to previous subgoal or the intial observation
     #       media: image embedding of the corresponding visual observations
     #   Sample label: tokens of target/completed subgoal
     for idx, pre_csg_time_step in zip(range(num_csgs), pre_csg_time_steps):
@@ -557,7 +780,7 @@ def test_subgoal_generation(demo, vlm, img_encoder, device, abstract_history, lo
         if abstract_history:
             vlm_input['image_embeds'] = img_embeds[:, :(idx+1), :, :]
         else:
-            # Instead of the 1st 'image', '<' in '<image...image>' corresonds to the 1st media location
+            # Instead of the 1st 'image', '|' in '|image...image|' corresonds to the 1st media location
             current_media_locations.extend([pre_input_text_len+i for i in range(2, num_attended_vis_obss+1)])
             vlm_input['image_embeds'] = img_embeds[:, :(pre_csg_time_step+1), :, :]
         vlm_input['media_locations'][0, current_media_locations] = True
@@ -709,3 +932,81 @@ def check_one_experiment(
     msg += "\n"
     msg += compare_three_types_of_models(test_demo, models, device, abstract_history, lowlevel_instr_set, tokenizer, skip_label)
     print(msg, file=file)
+
+# unit tests
+# Total number of available unit tests
+num_unit_test_case = 2
+# Test Case 1: test if the two implemnetations of loss calculation over a trajectory are correct
+def unit_test_loss_cal_by_subgoal_vs_episode(
+    test_demo_idx, device, demos, abstract_history, max_grad_norm,
+    lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+    skip_label, training_status_path
+):
+
+    loss_per_csg_calc = calc_loss_per_subgoal(
+        device, demos[test_demo_idx], abstract_history,
+        lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+        debug=True, skip_label=skip_label)
+    loss_per_csg_calc = loss_per_csg_calc.item()
+
+    is_training = False
+    epoch_id = 0
+    log_interval = 1
+    loss_over_demo = train_test_helper(
+        device, is_training, training_status_path, epoch_id,
+        demos,
+        log_interval, abstract_history,
+        lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+        skip_label, optimizer=None, max_grad_norm=None,
+        debug = True, test_demo_idx=test_demo_idx)
+    print("[Unit Test: Summary")
+    print(f"loss_per_csg_calc:{loss_per_csg_calc}")
+    print(f"loss_over_demo   :{loss_over_demo}")
+    print(f"Difference       :{round(loss_per_csg_calc-loss_over_demo, 6)}")
+
+
+# Test Case 2: test if the losses calculated per episode match that calculated by a batch mode
+def unit_test_loss_cal_by_episode_vs_batch(
+    test_demo_ids, device, demos, abstract_history,
+    lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+    skip_label, training_status_path
+):
+    is_training = False
+    epoch_id = 0
+    log_interval = 1
+    batch_size = len(test_demo_ids)
+    losses_batch = train_test_helper_batch_process(
+        device,
+        is_training,
+        training_status_path,
+        epoch_id,
+        demos,
+        log_interval,
+        abstract_history,
+        lowlevel_instr_set,
+        tokenizer,
+        vlm,
+        bow_image_conv_encoder,
+        skip_label=skip_label,
+        optimizer=None,
+        max_grad_norm=None,
+        debug=True,
+        test_demo_ids=test_demo_ids,
+        batch_size=batch_size)
+
+    losses_episodes = torch.zeros(batch_size, device=device)
+    for ep_idx in range(batch_size):
+        test_demo_idx = test_demo_ids[ep_idx]
+        loss_over_demo = train_test_helper(
+            device, is_training, training_status_path, epoch_id,
+            demos,
+            log_interval, abstract_history,
+            lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
+            skip_label, optimizer=None, max_grad_norm=None,
+            debug = True, test_demo_idx=test_demo_idx)
+        losses_episodes[ep_idx] = loss_over_demo
+    
+    print("[Unit Test: Summary")
+    print(f"losses_batch   :{losses_batch}")
+    print(f"losses_episodes:{losses_episodes}")
+    print(f"Difference     :{torch.round(losses_batch-losses_episodes, decimals=6)}")
