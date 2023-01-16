@@ -17,6 +17,8 @@ import os
 import logging
 import csv
 import json
+import time
+from functools import partial
 import gym
 import datetime
 import torch
@@ -25,10 +27,13 @@ import argparse
 
 from sklearn.model_selection import train_test_split
 from torch.optim import AdamW
+from torch.utils.data import DataLoader
 
 import babyai.utils as utils
 from babyai.utils.format import RawImagePreprocessor
-from babyai.utils.vlm import BowImageConvEncoder, train_test_helper, log_msg, calc_loss_per_subgoal, train_test_helper_batch_process, num_unit_test_case, unit_test_loss_cal_by_subgoal_vs_episode, unit_test_loss_cal_by_episode_vs_batch
+from babyai.utils.vlm import SubgoalsDemoDataset, subgoal_demo_collate_fn, SubgoalsDemoParsedDataset, subgoal_demo_parsed_collate_fn, SubgoalsDemoTokenizedDataset, subgoal_demo_tokenized_collate_fn
+from babyai.utils.vlm import BowImageConvEncoder, log_msg, train_test_helper_batch_process, train_test_helper_batch_process_with_dataloader, format_time
+from babyai.utils.vlm import num_unit_test_case, unit_test_loss_cal_by_subgoal_vs_episode, unit_test_loss_cal_by_episode_vs_batch
 from babyai.levels.verifier import LowlevelInstrSet
 
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
@@ -72,6 +77,18 @@ parser.add_argument("--unit-test-case", type=int, default=0,
 parser.add_argument("--save-initial-model", action="store_true", default=False,
                     help="save the initial model to see if the model is learning anything at all")
 
+parser.add_argument("--dataload-type", type=int, default=0,
+                    help="Three types:"+
+                        "\n\t0: demostration parsing (collate_fn), tokenization (collate_fn), padding (collate_fn)" +
+                        "\n\t1: demostration parsing (init), tokenization (collate_fn), padding (collate_fn)" +
+                        "\n\t2: demostration parsing (init), tokenization (init), padding (collate_fn)"
+                    )
+parser.add_argument("--pin-memory", action="store_true", default=False,
+                    help="pin the loaded data to a memory block before moving to GPU")
+parser.add_argument("--num-workers", type=int, default=0,
+                    help="number of processer used to load data in Pytorch DataLoader"
+                    )
+   
 args = parser.parse_args()
 
 # Load the demonstrations and split it into training, validation and testing partitions
@@ -175,7 +192,9 @@ env = gym.make(args.env)
 image_preproc = RawImagePreprocessor()
 visual_observation_bow_flat_dim=147
 bow_image_conv_encoder = BowImageConvEncoder(
-    visual_observation_bow_flat_dim, vlm.wte.embedding_dim,image_preproc,device)
+    visual_observation_bow_flat_dim, vlm.wte.embedding_dim,
+    None, #image_preproc,
+    device)
 
 vlm_model_path = os.path.join(model_dir, "vlm.pt")
 image_conv_model_path = os.path.join(model_dir, "image_conv.pt")
@@ -199,10 +218,71 @@ epoch_test_losses = np.zeros((args.epochs, 4))
 train_loss_path = os.path.join(model_dir, "train_loss.npy") 
 test_loss_path = os.path.join(model_dir, "test_loss.npy")
 
+
+msg = f"Creating dataloads..."
+log_msg(training_status_path, msg)
+tt = time.time()
+pin_memory = args.pin_memory
+num_workers = args.num_workers
+if args.dataload_type == 0:
+    # The collate function returns a tuple of four items: vlm_input, vlm_media, seeds, all_pre_csg_time_steps
+    # vlm_input: Huggingface BatchEncoding object
+    # vlm_media: image tensor with a shape, (b, t, ...)
+    # seeds    : list of seeds
+    # all_pre_csg_time_steps: list of lists of time steps in one episode when some subgoal completes.
+    #                         The index of the last completes subgoal is exlucded since it is the last step of the episode.
+    #                         The t=0 is included to facilite the processing.
+
+    batch_collate_fn_partial = partial(
+        subgoal_demo_collate_fn,
+        abstract_history = args.abstract_history,
+        lowlevel_instr_set = lowlevel_instr_set,
+        tokenizer = tokenizer,
+        image_preproc = image_preproc,
+        skip_label = skip_label,
+        pin_memory = pin_memory)
+    train_dataset = SubgoalsDemoDataset(demos_train)
+    test_dataset = SubgoalsDemoDataset(demos_test)
+elif args.dataload_type == 1:
+    batch_collate_fn_partial = partial(
+        subgoal_demo_parsed_collate_fn,
+        tokenizer = tokenizer,
+        image_preproc = image_preproc,
+        skip_label = skip_label,
+        pin_memory = pin_memory)
+    train_dataset = SubgoalsDemoParsedDataset(demos_train, args.abstract_history, lowlevel_instr_set)
+    test_dataset = SubgoalsDemoParsedDataset(demos_test, args.abstract_history, lowlevel_instr_set)
+elif args.dataload_type == 2:
+    batch_collate_fn_partial = partial(
+        subgoal_demo_tokenized_collate_fn,
+        tokenizer = tokenizer,
+        image_preproc = image_preproc,
+        skip_label = skip_label,
+        pin_memory = pin_memory)
+    train_dataset = SubgoalsDemoTokenizedDataset(demos_train, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label)
+    test_dataset = SubgoalsDemoTokenizedDataset(demos_test, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label)
+
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=batch_collate_fn_partial, num_workers=num_workers)
+test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=batch_collate_fn_partial, num_workers=num_workers)
+msg = f"Time cost of creating data loads: {format_time(time.time() - tt)}"
+log_msg(training_status_path, msg)
+
 msg = f"Training and testing start..."
 log_msg(training_status_path, msg)
 
+'''
+log_msg(training_status_path, "Parse all demonstrations: started")
+t0 = time.time()
+device_cpu = torch.device("cpu")
+train_dataset = parse_collected_demos(device_cpu, demos_train, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1, max_token_seq_len = 512)
+train_dataset2 = parse_collected_demos_per_demo(device, demos_train, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1)
+test_dataset = parse_collected_demos(device_cpu, demos_test, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1, max_token_seq_len = 512)
+time_elapse = format_time(time.time() - t0)
+log_msg(training_status_path, f"Parse all demonstrations: finished - {time_elapse}")
+'''
+
 if args.debug:
+    demos = demos_test
     if args.unit_test_case==0:
         test_cases = range(1, num_unit_test_case+1)
     else:
@@ -211,30 +291,33 @@ if args.debug:
     for test_case_id in test_cases:
         if test_case_id == 1:
             test_demo_idx = 100
+            test_demo = demos[test_demo_idx]
             unit_test_loss_cal_by_subgoal_vs_episode(
-                test_demo_idx, device, demos_train, args.abstract_history,
+                test_demo, device, args.abstract_history,
                 lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-                skip_label, training_status_path)
+                skip_label)
         elif test_case_id == 2:
             test_demo_ids = [0, 1]
+            test_demos = [demos[id] for id in test_demo_ids]
             unit_test_loss_cal_by_episode_vs_batch(
-                test_demo_ids, device, demos_train, args.abstract_history,
+                test_demos, device, args.abstract_history,
                 lowlevel_instr_set, tokenizer, vlm, bow_image_conv_encoder,
-                skip_label, training_status_path
+                skip_label
             )
 else:
     best_test_loss = np.inf
-    for epoch_i in range(0, args.epochs):
-        msg = '======== Epoch {:} / {:} ========'.format(epoch_i + 1, args.epochs)
+    for epoch_id in range(0, args.epochs):
+        msg = '======== Epoch {:} / {:} ========'.format(epoch_id + 1, args.epochs)
         log_msg(training_status_path, msg)
 
         # Training
         is_training = True
-        tr_losses_stat = train_test_helper_batch_process(
+        '''
+        tr_losses_stat = train_test_helper(
             device,
             is_training,
             training_status_path,
-            epoch_i,
+            epoch_id,
             demos_train,
             args.log_interval,
             args.abstract_history,
@@ -247,7 +330,34 @@ else:
             max_grad_norm=args.max_grad_norm,
             batch_size=args.batch_size)
 
-        epoch_train_losses[epoch_i] = tr_losses_stat
+        tr_losses_stat = train_test_helper_batch_process(
+            device,
+            is_training,
+            training_status_path,
+            epoch_id,
+            train_dataset,
+            args.log_interval,
+            vlm,
+            bow_image_conv_encoder,
+            optimizer=optimizer,
+            max_grad_norm=args.max_grad_norm,
+            batch_size=args.batch_size)
+        '''
+        num_all_train_demos = len(demos_train)
+        tr_losses_stat = train_test_helper_batch_process_with_dataloader(
+            device,
+            is_training,
+            training_status_path,
+            epoch_id,
+            train_loader,
+            num_all_train_demos,
+            args.log_interval,
+            vlm,
+            bow_image_conv_encoder,
+            optimizer=optimizer,
+            max_grad_norm=args.max_grad_norm)
+
+        epoch_train_losses[epoch_id] = tr_losses_stat
         np.save(train_loss_path, epoch_train_losses)
         # saved the trained model after each epoch
         torch.save(bow_image_conv_encoder, image_conv_model_path)
@@ -255,11 +365,12 @@ else:
 
         # Testing
         is_training = False
-        te_losses_stat = train_test_helper_batch_process(
+        '''
+        te_losses_stat = train_test_helper(
             device,
             is_training,
             training_status_path,
-            epoch_i,
+            epoch_id,
             demos_test,
             args.log_interval,
             args.abstract_history,
@@ -270,7 +381,31 @@ else:
             skip_label=skip_label,
             batch_size=args.batch_size)
 
-        epoch_test_losses[epoch_i] = te_losses_stat
+        te_losses_stat = train_test_helper_batch_process(
+            device,
+            is_training,
+            training_status_path,
+            epoch_id,
+            test_dataset,
+            args.log_interval,
+            vlm,
+            bow_image_conv_encoder,
+            batch_size=args.batch_size)
+        '''
+        num_all_test_demos = len(demos_test)
+        te_losses_stat = train_test_helper_batch_process_with_dataloader(
+            device,
+            is_training,
+            training_status_path,
+            epoch_id,
+            test_loader,
+            num_all_test_demos,
+            args.log_interval,
+            vlm,
+            bow_image_conv_encoder)
+
+
+        epoch_test_losses[epoch_id] = te_losses_stat
         np.save(test_loss_path, epoch_test_losses)
 
         if best_test_loss > te_losses_stat[0]:
