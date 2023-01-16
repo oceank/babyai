@@ -234,7 +234,6 @@ if args.dataload_type == 0:
     # all_pre_csg_time_steps: list of lists of time steps in one episode when some subgoal completes.
     #                         The index of the last completes subgoal is exlucded since it is the last step of the episode.
     #                         The t=0 is included to facilite the processing.
-
     batch_collate_fn_partial = partial(
         subgoal_demo_collate_fn,
         abstract_history = args.abstract_history,
@@ -272,17 +271,6 @@ log_msg(training_status_path, msg)
 msg = f"Training and testing start..."
 log_msg(training_status_path, msg)
 
-'''
-log_msg(training_status_path, "Parse all demonstrations: started")
-t0 = time.time()
-device_cpu = torch.device("cpu")
-train_dataset = parse_collected_demos(device_cpu, demos_train, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1, max_token_seq_len = 512)
-train_dataset2 = parse_collected_demos_per_demo(device, demos_train, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1)
-test_dataset = parse_collected_demos(device_cpu, demos_test, args.abstract_history, lowlevel_instr_set, tokenizer, skip_label=-1, max_token_seq_len = 512)
-time_elapse = format_time(time.time() - t0)
-log_msg(training_status_path, f"Parse all demonstrations: finished - {time_elapse}")
-'''
-
 if args.debug:
     demos = demos_test
     if args.unit_test_case==0:
@@ -314,37 +302,6 @@ else:
 
         # Training
         is_training = True
-        '''
-        tr_losses_stat = train_test_helper(
-            device,
-            is_training,
-            training_status_path,
-            epoch_id,
-            demos_train,
-            args.log_interval,
-            args.abstract_history,
-            lowlevel_instr_set,
-            tokenizer,
-            vlm,
-            bow_image_conv_encoder,
-            skip_label=skip_label,
-            optimizer=optimizer,
-            max_grad_norm=args.max_grad_norm,
-            batch_size=args.batch_size)
-
-        tr_losses_stat = train_test_helper_batch_process(
-            device,
-            is_training,
-            training_status_path,
-            epoch_id,
-            train_dataset,
-            args.log_interval,
-            vlm,
-            bow_image_conv_encoder,
-            optimizer=optimizer,
-            max_grad_norm=args.max_grad_norm,
-            batch_size=args.batch_size)
-        '''
         num_all_train_demos = len(demos_train)
         tr_losses_stat = train_test_helper_batch_process_with_dataloader(
             device,
@@ -367,33 +324,6 @@ else:
 
         # Testing
         is_training = False
-        '''
-        te_losses_stat = train_test_helper(
-            device,
-            is_training,
-            training_status_path,
-            epoch_id,
-            demos_test,
-            args.log_interval,
-            args.abstract_history,
-            lowlevel_instr_set,
-            tokenizer,
-            vlm,
-            bow_image_conv_encoder,
-            skip_label=skip_label,
-            batch_size=args.batch_size)
-
-        te_losses_stat = train_test_helper_batch_process(
-            device,
-            is_training,
-            training_status_path,
-            epoch_id,
-            test_dataset,
-            args.log_interval,
-            vlm,
-            bow_image_conv_encoder,
-            batch_size=args.batch_size)
-        '''
         num_all_test_demos = len(demos_test)
         te_losses_stat = train_test_helper_batch_process_with_dataloader(
             device,

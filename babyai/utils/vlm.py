@@ -94,7 +94,6 @@ def subgoal_demo_collate_fn(demos, abstract_history, lowlevel_instr_set, tokeniz
 
     return vlm_input, vlm_media, seeds, all_pre_csg_time_steps
 
-
 class SubgoalsDemoParsedDataset(Dataset):
     def __init__(self, demos, abstract_history, lowlevel_instr_set):
         self.seeds = []
