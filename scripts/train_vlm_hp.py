@@ -104,9 +104,9 @@ model_name_prefix += f"_dss{args.dataset_split_seed}"
 model_name_prefix += f"_b{args.batch_size}_lr{args.lr}"
 experiment_datetime = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 if args.abstract_history:
-    model_name_prefix += "_abstract_"
+    model_name_prefix += "_abstract"
 else:
-    model_name_prefix += "_full_"
+    model_name_prefix += "_full"
 if args.only_attend_immediate_media:
     model_name_prefix += "_imd_"
 else:
