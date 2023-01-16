@@ -90,22 +90,32 @@ parser.add_argument("--pin-memory", action="store_true", default=False,
 parser.add_argument("--num-workers", type=int, default=0,
                     help="number of processer used to load data in Pytorch DataLoader"
                     )
+parser.add_argument("--dataset-split-seed", type=int, default=1,
+                    help="the seed used by train_test_split() to split the dataset"
+                    )
    
 args = parser.parse_args()
 
 # Load the demonstrations and split it into training, validation and testing partitions
 # "--env", "BabyAI-UnlockLocalR2Dist-v0",
 # "--demos_name", "UnlockLocalR2Dist_BotDemosfrom babyai.levels.verifier import LowlevelInstrSet_100000",
-model_name_prefix = args.demos_name + f"_b{args.batch_size}_lr{args.lr}"
+model_name_prefix = args.demos_name
+model_name_prefix += f"_dss{args.dataset_split_seed}"
+model_name_prefix += f"_b{args.batch_size}_lr{args.lr}"
 experiment_datetime = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
 if args.abstract_history:
-    model_name_prefix += "_abstract_" + experiment_datetime
+    model_name_prefix += "_abstract_"
 else:
-    model_name_prefix += "_full_" + experiment_datetime
+    model_name_prefix += "_full_"
+if args.only_attend_immediate_media:
+    model_name_prefix += "_imd_"
+else:
+    model_name_prefix += "_all_"
+model_name_prefix += experiment_datetime
 
 demos_dir = os.path.join(utils.storage_dir(), "demos")
-demos_train_set_path = os.path.join(demos_dir, args.demos_name+"_trainset.pkl") 
-demos_test_set_path = os.path.join(demos_dir, args.demos_name+"_testset.pkl")
+demos_train_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_trainset.pkl")
+demos_test_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_testset.pkl")
 
 if os.path.exists(demos_train_set_path) and os.path.exists(demos_test_set_path):
     demos_train = utils.load_demos(demos_train_set_path)
@@ -124,7 +134,7 @@ else:
     demos = utils.demos.transform_demos(demos, check_subgoal_completion=True)
     test_samples_ratio = 0.2 # episode-wise
     total_demos = len(demos)
-    demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio)
+    demos_train ,demos_test = train_test_split(demos,test_size=test_samples_ratio, random_state=args.dataset_split_seed)
     utils.save_demos(demos_train, demos_train_set_path)
     utils.save_demos(demos_test, demos_test_set_path)
 
