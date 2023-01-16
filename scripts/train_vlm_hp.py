@@ -47,7 +47,7 @@ parser = argparse.ArgumentParser(
 
 parser.add_argument("--env", default=None,
                             help="name of the environment to train on (REQUIRED)")
-parser.add_argument("--demos_name", default=None,
+parser.add_argument("--demos-name", default=None,
                     help="demos filename (REQUIRED)")
 
 parser.add_argument("--vlm_arc", default='Flamingo',
@@ -62,6 +62,8 @@ parser.add_argument("--epochs", type=int, default=4,
                     help="number of epochs for training (default: 4)")
 parser.add_argument("--abstract-history", action="store_true", default=False,
                     help="Allows you to switch between the full history and the abstraction of the full history")
+parser.add_argument("--only-attend-immediate-media", action="store_true", default=False,
+                    help="The VLM has a text token only attend to its immediately previous media. The true value of this argumetn will make the non-immediate media collected in the full history mode useless.")
 parser.add_argument("--log-interval", type=int, default=10,
                     help="number of used demonstrations between two logging events during training (default: 10, 0 means no saving)")
 parser.add_argument("--batch-size", type=int, default=1,
@@ -182,7 +184,7 @@ if args.vlm_arc == "Flamingo":
                                      # It should be smaller than the sequence length of the image tokens
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = args.max_history_window_vlm,#16, 8, 128
-        only_attend_immediate_media=args.abstract_history, # True: Abstracted history, False: Full history
+        only_attend_immediate_media=args.only_attend_immediate_media,
         skip_label = skip_label      # The label id that will be skipped when calculating loss
     )
 else:
