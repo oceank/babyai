@@ -936,6 +936,14 @@ class Bot:
             self._process_instr(instr.instr_b)
             return
 
+        to_be_implemented = isinstance(instr, OpenBoxInstr) or \
+                            isinstance(instr, PassInstr) or \
+                            isinstance(instr, DropNextInstr) or \
+                            isinstance(instr, DropNextNothingInstr)
+        if to_be_implemented:
+            print('Warning: instruction type not implemented in BOT: {}'.format(instr.__class__.__name__))
+            return
+
         assert False, "unknown instruction type"
 
     def _check_erroneous_box_opening(self, action):
