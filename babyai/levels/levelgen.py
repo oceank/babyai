@@ -65,6 +65,10 @@ class RoomGridLevel(RoomGrid):
     def reset(self, **kwargs):
         obs = super().reset(**kwargs)
 
+        # set the carrying object in the environment
+        if isinstance(self.instrs, DropNextInstr) or isinstance(self.instrs, DropNextNothingInstr):
+            self.carrying = self.instrs.initially_carried_world_obj
+
         # Recreate the verifier
         self.instrs.reset_verifier(self)
         if self.num_sub_goals:
