@@ -129,13 +129,13 @@ class LowlevelInstrSet:
                     open_door_instrs.append(OpenInstr(obj))
                     pass_door_instrs.append(PassInstr(obj))
                 else:
-                    drop_nextto_nothing_instrs.append(DropNextNothingInstr(initial_carried_world_obj=None, obj_to_drop=obj))
+                    drop_nextto_nothing_instrs.append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
                     pickup_instrs.append(PickupInstr(obj))
                     if obj_type == 'box':
                         open_box_instrs.append(OpenBoxInstr(obj))
 
                 goto_instrs.append(GoToInstr(obj))
-                drop_nextto_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initial_carried_world_obj=None))
+                drop_nextto_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
 
         subgoal_instructions = []
         subgoal_instructions.extend(open_door_instrs)
@@ -673,11 +673,11 @@ class DropNextInstr(ActionInstr):
         obj_carried: ObjDesc instance. used to differentiate the usages between low-level instr and mission goal
         carrying: WorldObj instance. used in gen_mission() to indicate the carried obj when the mission starts
     """
-    def __init__(self, obj_carried, obj_fixed, initial_carried_world_obj=None, strict=False):
+    def __init__(self, obj_carried, obj_fixed, initially_carried_world_obj=None, strict=False):
         super().__init__()
         assert not obj_carried or obj_carried.type != 'door'
         self.initially_carried_obj = obj_carried
-        self.initially_carried_world_obj = initial_carried_world_obj
+        self.initially_carried_world_obj = initially_carried_world_obj
         self.desc = obj_fixed # the target object that the agent needs to put its carried one next to 
         self.strict = strict
 
@@ -728,13 +728,13 @@ class DropNextNothingInstr(ActionInstr):
     #   obj_carried is None, obj_to_drop is not None
     # Case 2 (used when initializing a mission in DropNextNothingLocal environment)
     #   obj_carried == obj_to_drop, they are not None
-    def __init__(self, initial_carried_world_obj, obj_to_drop, strict=False):
+    def __init__(self, initially_carried_world_obj, obj_to_drop, strict=False):
         super().__init__()
-        assert not initial_carried_world_obj or initial_carried_world_obj.type != 'door'
+        assert not initially_carried_world_obj or initially_carried_world_obj.type != 'door'
         assert obj_to_drop and obj_to_drop.type != 'door'
 
         self.desc = obj_to_drop
-        self.initial_carried_world_obj=initial_carried_world_obj
+        self.initially_carried_world_obj=initially_carried_world_obj
 
         self.strict = strict
 
@@ -754,8 +754,8 @@ class DropNextNothingInstr(ActionInstr):
     def reset_verifier(self, env):
         super().reset_verifier(env)
 
-        if self.initial_carried_world_obj is not None:
-            self.preCarrying = self.initial_carried_world_obj
+        if self.initially_carried_world_obj is not None:
+            self.preCarrying = self.initially_carried_world_obj
         else:
             self.preCarrying = None
 
