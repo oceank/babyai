@@ -94,7 +94,8 @@ class RoomGridLevel(RoomGrid):
         obs, reward, done, info = super().step(action)
 
         # If we drop an object, we need to update its position in the environment
-        if action == self.actions.drop:
+        #if action == self.actions.drop:
+        if self.grid_changed:
             self.update_objs_poss()
 
         # if the current subgoal is done
