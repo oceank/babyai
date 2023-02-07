@@ -671,7 +671,7 @@ class DropNextInstr(ActionInstr):
     """
     Parameters:
         obj_carried: ObjDesc instance. used to differentiate the usages between low-level instr and mission goal
-        carrying: WorldObj instance. used in gen_mission() to indicate the carried obj when the mission starts
+        initially_carried_world_obj: WorldObj instance. used in gen_mission() to indicate the carried obj when the mission starts
     """
     def __init__(self, obj_carried, obj_fixed, initially_carried_world_obj=None, strict=False):
         super().__init__()
@@ -704,11 +704,76 @@ class DropNextInstr(ActionInstr):
         self.preCarrying = self.env.carrying
 
         # Only verify when the drop action is performed
-        if preCarrying and action == self.env.actions.drop:
-            pos_a = preCarrying.cur_pos
+        #   preCarrying and not self.preCarring: the previously carried object has been successfully dropped
+        if action == self.env.actions.drop and preCarrying and (not self.preCarrying):
+            if preCarrying==self.initially_carried_world_obj:
+                pos_a = preCarrying.cur_pos
 
-            for pos_b in self.desc.obj_poss:
-                if pos_next_to(pos_a, pos_b):
+                for pos_b in self.desc.obj_poss:
+                    if pos_next_to(pos_a, pos_b):
+                        return 'success'
+
+            # in strict mode, droping the carried object next to a wrong object
+            if self.strict:
+                return 'failure'
+
+        return 'continue'
+
+class DropNotNextInstr(ActionInstr):
+    """
+    Drop the carried object not next to another object. Assume the agent is carring an object.
+    eg: put the red ball not next to the blue key
+    """
+
+    """
+    Parameters:
+        obj_carried: ObjDesc instance. used to differentiate the usages between low-level instr and mission goal
+        initially_carried_world_obj: WorldObj instance. used in gen_mission() to indicate the carried obj when the mission starts
+    """
+    def __init__(self, obj_carried, obj_fixed, initially_carried_world_obj=None, strict=False):
+        super().__init__()
+        assert not obj_carried or obj_carried.type != 'door'
+        self.initially_carried_obj = obj_carried
+        self.initially_carried_world_obj = initially_carried_world_obj
+        self.desc = obj_fixed # the target object that the agent needs to put its carried one next to 
+        self.strict = strict
+
+    def surface(self, env):
+        carried_obj_desc = ""
+        if self.initially_carried_obj:
+            carried_obj_desc = " " + self.initially_carried_obj.surface(env, is_carried=True)
+        return 'drop' + carried_obj_desc+ ' not next to ' + self.desc.surface(env)
+
+    def reset_verifier(self, env):
+        super().reset_verifier(env)
+
+        if self.initially_carried_world_obj is not None:
+            self.preCarrying = self.initially_carried_world_obj
+        else:
+            self.preCarrying = None
+
+        # Identify set of possible matching objects in the environment
+        self.desc.find_matching_objs(env)
+
+    def verify_action(self, action):
+        # To keep track of what was carried at the last time step
+        preCarrying = self.preCarrying
+        self.preCarrying = self.env.carrying
+
+        # Only verify when the drop action is performed
+        #   preCarrying and not self.preCarring: the previously carried object has been successfully dropped
+        if action == self.env.actions.drop and preCarrying and (not self.preCarrying):
+            if preCarrying==self.initially_carried_world_obj:
+                pos_a = preCarrying.cur_pos
+
+                next_to_one_matching_objs = False
+                for pos_b in self.desc.obj_poss:
+                    if pos_next_to(pos_a, pos_b):
+                        next_to_one_matching_objs = True
+                        break
+                if next_to_one_matching_objs:
+                    return 'failure'
+                else:
                     return 'success'
 
             # in strict mode, droping the carried object next to a wrong object
