@@ -1332,7 +1332,7 @@ class Level_GoToLocalR1Dist(RoomGridLevel):
 
 class Level_DropNextLocalR1Dist(RoomGridLevel):
     """
-    Fetch an object (key, ball or box) in the current room
+    Drop an object (key, ball or box) to an object
     """
 
     def __init__(self, room_size=8, num_distractors=4, seed=None):
@@ -1355,6 +1355,7 @@ class Level_DropNextLocalR1Dist(RoomGridLevel):
         carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
 
         self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+        self.carrying.cur_pos = np.array([-1, -1])
 
         self.instrs = DropNextInstr(
             obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
@@ -1364,7 +1365,7 @@ class Level_DropNextLocalR1Dist(RoomGridLevel):
 
 class Level_DropNextNothingLocalR1Dist(RoomGridLevel):
     """
-    Fetch an object (key, ball or box) in the current room
+    Drop a carried object and make sure it is not next to any other objects
     """
 
     def __init__(self, room_size=8, num_distractors=4, seed=None):
@@ -1555,10 +1556,39 @@ class Level_DropNextLocalR3(Level_ActionObjDoorR3):
         carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
 
         self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+        self.carrying.cur_pos = np.array([-1, -1])
 
         self.instrs = DropNextInstr(
             obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
             obj_fixed = ObjDesc(next_to_obj.type, next_to_obj.color),
+            initially_carried_world_obj = self.carrying
+        )
+
+class Level_DropNotNextLocalR3(Level_ActionObjDoorR3):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors)
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+            objs.append(door)
+
+        self.place_agent(i=1, j=0)
+
+        not_next_to_obj = self._rand_elem(objs)
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+        self.carrying.cur_pos = np.array([-1, -1])
+
+        self.instrs = DropNextInstr(
+            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            obj_fixed = ObjDesc(not_next_to_obj.type, not_next_to_obj.color),
             initially_carried_world_obj = self.carrying
         )
 
