@@ -1424,6 +1424,9 @@ class Level_ActionObjDoorR3(RoomGridLevel):
 
         self.place_agent(i=1, j=0)
 
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
         obj = self._rand_elem(objs)
         desc = ObjDesc(obj.type, obj.color)
 
@@ -1453,6 +1456,9 @@ class Level_GoToLocalR3(Level_ActionObjDoorR3):
 
         self.place_agent(i=1, j=0)
 
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
         obj = self._rand_elem(objs)
         desc = ObjDesc(obj.type, obj.color)
         self.instrs = GoToInstr(desc)
@@ -1477,6 +1483,9 @@ class Level_OpenBoxLocalR3(Level_ActionObjDoorR3):
 
         self.place_agent(i=1, j=0)
 
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
         desc = ObjDesc(box.type, box.color)
         self.instrs = OpenBoxInstr(desc)
 
@@ -1494,6 +1503,9 @@ class Level_OpenDoorLocalR3(Level_ActionObjDoorR3):
             doors.append(door)
 
         self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
 
         door = self._rand_elem(doors)
         desc = ObjDesc(door.type, door.color)
@@ -1515,6 +1527,9 @@ class Level_PassDoorLocalR3(Level_ActionObjDoorR3):
 
         self.place_agent(i=1, j=0)
 
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
         door = self._rand_elem(doors)
         desc = ObjDesc(door.type, door.color)
         self.instrs = PassInstr(desc)
@@ -1527,14 +1542,17 @@ class Level_PickupLocalR3(Level_ActionObjDoorR3):
     # their arguments i and j correspond to the column and row of the grid.
     def gen_mission(self):
         objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors)
-        obj = self._rand_elem(objs)
-        desc = ObjDesc(obj.type, obj.color)
-        self.instrs = PickupInstr(desc)
-
         for _ in range(self.num_doors):
             door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
 
         self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        obj = self._rand_elem(objs)
+        desc = ObjDesc(obj.type, obj.color)
+        self.instrs = PickupInstr(desc)
 
 class Level_DropNextLocalR3(Level_ActionObjDoorR3):
     def __init__(self, seed=None):
@@ -1549,6 +1567,9 @@ class Level_DropNextLocalR3(Level_ActionObjDoorR3):
             objs.append(door)
 
         self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
 
         next_to_obj = self._rand_elem(objs)
 
@@ -1577,6 +1598,9 @@ class Level_DropNotNextLocalR3(Level_ActionObjDoorR3):
             objs.append(door)
 
         self.place_agent(i=1, j=0)
+        
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
 
         not_next_to_obj = self._rand_elem(objs)
 
@@ -1586,7 +1610,7 @@ class Level_DropNotNextLocalR3(Level_ActionObjDoorR3):
         self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
         self.carrying.cur_pos = np.array([-1, -1])
 
-        self.instrs = DropNextInstr(
+        self.instrs = DropNotNextInstr(
             obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
             obj_fixed = ObjDesc(not_next_to_obj.type, not_next_to_obj.color),
             initially_carried_world_obj = self.carrying
@@ -1605,6 +1629,9 @@ class Level_DropNextNothingLocalR3(Level_ActionObjDoorR3):
             objs.append(door)
 
         self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
 
         carried_obj_color = self._rand_elem(COLOR_NAMES)
         carried_obj_type = self._rand_elem(['key', 'ball', 'box'])

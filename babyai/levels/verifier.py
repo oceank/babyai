@@ -713,9 +713,9 @@ class DropNextInstr(ActionInstr):
                     if pos_next_to(pos_a, pos_b):
                         return 'success'
 
-            # in strict mode, droping the carried object next to a wrong object
-            if self.strict:
-                return 'failure'
+                # in strict mode, droping the carried object next to a wrong object
+                if self.strict:
+                    return 'failure'
 
         return 'continue'
 
@@ -766,19 +766,18 @@ class DropNotNextInstr(ActionInstr):
             if preCarrying==self.initially_carried_world_obj:
                 pos_a = preCarrying.cur_pos
 
-                next_to_one_matching_objs = False
+                not_next_to_target_objs = True
                 for pos_b in self.desc.obj_poss:
                     if pos_next_to(pos_a, pos_b):
-                        next_to_one_matching_objs = True
+                        not_next_to_target_objs = False
                         break
-                if next_to_one_matching_objs:
-                    return 'failure'
-                else:
+
+                if not_next_to_target_objs:
                     return 'success'
 
-            # in strict mode, droping the carried object next to a wrong object
-            if self.strict:
-                return 'failure'
+                # in strict mode, droping the carried object next to a wrong object
+                if self.strict:
+                    return 'failure'
 
         return 'continue'
 
@@ -836,7 +835,8 @@ class DropNextNothingInstr(ActionInstr):
         #   preCarrying and not self.preCarring: the previously carried object has been successfully dropped
         if action == self.env.actions.drop and preCarrying and (not self.preCarrying):
             # the droped object matches that in the instruction
-            if preCarrying.type == self.desc.type and preCarrying.color == self.desc.color:
+            if preCarrying == self.initially_carried_world_obj:
+            #if preCarrying.type == self.desc.type and preCarrying.color == self.desc.color:
                 # Note:
                 # The agent is next to the dropped object on the grid, but it is not captured by the grid but by the env.
                 # So, the cell where the agent locates is empty from the view of the grid. That is, the corresponding
