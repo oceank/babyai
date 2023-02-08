@@ -939,6 +939,7 @@ class Bot:
         to_be_implemented = isinstance(instr, OpenBoxInstr) or \
                             isinstance(instr, PassInstr) or \
                             isinstance(instr, DropNextInstr) or \
+                            isinstance(instr, DropNotNextInstr) or \
                             isinstance(instr, DropNextNothingInstr)
         if to_be_implemented:
             print('Warning: instruction type not implemented in BOT: {}'.format(instr.__class__.__name__))
