@@ -187,13 +187,23 @@ class LowlevelInstrSet:
             if is_valid:
                 if isinstance(instr,  PickupInstr):
                     instr.preCarrying = env.carrying
+                if isinstance(instr, DropNextInstr):
+                    instr.preCarrying = env.carrying
+                    instr.initially_carried_world_obj = env.carrying
+                if isinstance(instr, DropNextNothingInstr):
+                    instr.preCarrying = env.carrying
+                    if (env.carrying is not None) and instr.desc.type == env.carrying.type and instr.desc.color == env.carrying.color:
+                        instr.initially_carried_world_obj = env.carrying
                 valid_subgoals.append(subgoal)
 
               
         return valid_subgoals
 
     def update_current_valid_subgoals(self, env):
-        self.current_valid_subgoals = self.filter_valid_subgoals(self.initial_valid_subgoals, env)
+        # workaround: replace self.initial_valid_subgoals with self.all_subgoals to update the current
+        # valid subgoals to work around the bug that subgoals related to carried and hidden objects are not
+        # considered during the mission because they are excluded in the list of initial current sugboals
+        self.current_valid_subgoals = self.filter_valid_subgoals(self.all_subgoals, env)
 
     def check_completed_subgoals(self, action, env):
         """
@@ -236,9 +246,11 @@ class ObjDesc:
         self.loc = loc
 
         # Set of objects possibly matching the description
+        # Include objects hidden in boxes
         self.obj_set = []
 
         # Set of initial object positions
+        # It will be updated to track only Onboard and visible objects
         self.obj_poss = []
 
     def __repr__(self):
@@ -285,6 +297,9 @@ class ObjDesc:
         When use_location is False, we only update the positions of already tracked objects, without taking into account
         the location of the object. e.g. A ball that was on "your right" initially will still be tracked as being "on
         your right" when you move.
+
+        Check the object hidden inside a box and added matched hidden objects to the obj_set
+        Assume there is as most one hidden level. That is, the scenario that an object hides inside a box which hides another box is not considered.
         """
 
         if use_location:
@@ -307,12 +322,24 @@ class ObjDesc:
                     if not already_tracked:
                         continue
 
-                # Check if object's type matches description
-                if self.type is not None and cell.type != self.type:
-                    continue
+                matched_obj = None
+                macthed_obj_hidden = False
+                # If the current cell is box, check the object hidden inside a box.
+                # Notes: it assumes that the box and the hidden object are the same and thus will not both match the target object.
+                if cell.type == 'box' and cell.contains is not None:
+                    if self.type is not None and cell.contains.type == self.type:
+                        if self.color is not None and cell.contains.color == self.color:
+                            matched_obj = cell.contains
+                            macthed_obj_hidden = True
 
-                # Check if object's color matches description
-                if self.color is not None and cell.color != self.color:
+                if matched_obj is None:
+                    # Check if object's type matches description
+                    if self.type is not None and cell.type == self.type:
+                        # Check if object's color matches description
+                        if self.color is not None and cell.color == self.color:
+                            matched_obj = cell
+
+                if matched_obj is None:
                     continue
 
                 # Check if object's position matches description
@@ -341,8 +368,11 @@ class ObjDesc:
                         continue
 
                 if use_location:
-                    self.obj_set.append(cell)
-                self.obj_poss.append((i, j))
+                    self.obj_set.append(matched_obj)
+
+                # self.obj_poss stores the positions of tracked objects that on board and visible.
+                if not macthed_obj_hidden:
+                    self.obj_poss.append((i, j))
 
         return self.obj_set, self.obj_poss
 
