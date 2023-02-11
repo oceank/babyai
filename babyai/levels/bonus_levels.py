@@ -1666,7 +1666,7 @@ class Level_UnlockLocalR3(Level_ActionObjDoorR3):
         # Make sure no unblocking is required
         self.check_objs_reachable()
 
-        desc = ObjDesc(door.type, door.color)
+        desc = ObjDesc(target_door.type, target_door.color)
         self.instrs = OpenInstr(desc)
 
 class Level_PickupObjInBoxLocalR3(Level_ActionObjDoorR3):
