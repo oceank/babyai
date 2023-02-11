@@ -1643,6 +1643,163 @@ class Level_DropNextNothingLocalR3(Level_ActionObjDoorR3):
             obj_to_drop = ObjDesc(carried_obj_type, carried_obj_color)
         )
 
+## High-level tasks
+class Level_UnlockLocalR3(Level_ActionObjDoorR3):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed, door_locked=True)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        doors = []
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+            doors.append(door)
+
+        target_door = self._rand_elem(doors)
+        key, _ = self.add_object(1, 0, 'key', target_door.color)
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors-1)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(door.type, door.color)
+        self.instrs = OpenInstr(desc)
+
+class Level_PickupObjInBoxLocalR3(Level_ActionObjDoorR3):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        box = Box(self._rand_color())
+        self.place_in_room(1, 0, box)
+
+        # Add distractors and put one in the above box
+        #   the box and the hidden object together are considered as one distractor
+        #   since only one of them will be visible at a time
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        box.contains = hidden_obj
+
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_GoToObjInBoxLocalR3(Level_ActionObjDoorR3):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        box = Box(self._rand_color())
+        self.place_in_room(1, 0, box)
+
+        # Add distractors and put one in the above box
+        #   the box and the hidden object together are considered as one distractor
+        #   since only one of them will be visible at a time
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        box.contains = hidden_obj
+
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_GoToNeighborRoomR3(Level_ActionObjDoorR3):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_room_i = self._rand_elem([0, 2])
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        # The exploration of boxes in the starting room is excluded to control the complexity of the level
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        for color in COLOR_NAMES:
+            exclude_objs.append(('box', color))
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+            objs.append(door)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_PutNextLocalR3(Level_ActionObjDoorR3):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        for _ in range(self.num_doors):
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked)
+            objs.append(door)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
 for name, level in list(globals().items()):
     if name.startswith('Level_'):
         level.is_bonus = True
