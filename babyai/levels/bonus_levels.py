@@ -2017,21 +2017,21 @@ class Level_UnblockDoorGoToR3(Level_ActionObjDoorR3):
         target_door = target_room.doors[target_door_idx]
         target_i, target_j = target_door.cur_pos
 
-        # Place the blocker
-        kind = self._rand_elem(['key', 'ball', 'box'])
-        color = self._rand_elem(COLOR_NAMES)
-        blocker = WorldObj.decode(OBJECT_TO_IDX[kind], COLOR_TO_IDX[color], 0)
+        # Add the rest distracting objects in the starting room
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+
+        # Move one object to block the target door
+        blocker = self._rand_elem(objs)
+        self.grid.set(*blocker.cur_pos, None)
         if target_room_i == 2: # the door connects to the room on the right
             blocker_i = target_i - 1
         else: # target_room_i == 0, the door connects to the room on the left
             blocker_i = target_i + 1
         blocker_pos = (blocker_i, target_j)
-        self.grid.set(*blocker_pos, blocker)
         blocker.init_pos = blocker_pos
         blocker.cur_pos = blocker_pos
-
-        # Add the rest distracting objects in the starting room
-        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors-1)
+        self.grid.set(*blocker_pos, blocker)
 
         self.place_agent(i=1, j=0)
 
