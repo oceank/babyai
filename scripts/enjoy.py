@@ -96,7 +96,7 @@ if use_subgoals:
 
 
 # Define agent
-check_subgoal_completion = True # temporary; set it as an input argument to the script
+check_subgoal_completion = False #True # temporary; set it as an input argument to the script
 agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal, check_subgoal_completion)
 if args.demos is not None:
     max_num_episodes = len(agent.demos)
@@ -195,6 +195,7 @@ def keyDownCb(event):
             episode_num += 1
             env.seed(args.seed + episode_num)
             obs = env.reset()
+            agent.on_reset()
             print("Mission: {}".format(obs["mission"]))
             step = 0
 
