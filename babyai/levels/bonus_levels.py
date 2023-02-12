@@ -2038,6 +2038,581 @@ class Level_UnblockDoorGoToR3(Level_ActionObjDoorR3):
         desc = ObjDesc(target_obj.type, target_obj.color)
         self.instrs = GoToInstr(desc)
 
+# Levels that have 2 rooms
+# Environments For Low-level Tasks
+class Level_ActionObjDoorR2(RoomGridLevel):
+    """
+    [pick up an object] or
+    [go to an object or door] or
+    [open a door]
+    (in the current room)
+    """
+
+    def __init__(self, seed=None, door_locked=False, num_distractors=5):
+        self.door_locked = door_locked
+        self.num_distractors = num_distractors
+        self.num_doors = 1
+        super().__init__(
+            room_size=8,
+            num_rows=1,
+            num_cols=2,
+            agent_view_size=7,
+            seed=seed
+        )
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        obj = self._rand_elem(objs)
+        desc = ObjDesc(obj.type, obj.color)
+
+        if obj.type == 'door':
+            if self._rand_bool():
+                self.instrs = GoToInstr(desc)
+            else:
+                self.instrs = OpenInstr(desc)
+        else:
+            if self._rand_bool():
+                self.instrs = GoToInstr(desc)
+            else:
+                self.instrs = PickupInstr(desc)
+
+
+class Level_GoToLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        obj = self._rand_elem(objs)
+        desc = ObjDesc(obj.type, obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_OpenBoxLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        # add a box
+        color = self._rand_elem(COLOR_NAMES)
+        type = 'box'
+        obj = (type, color)
+        box, pos = self.add_object(0, 0, *obj)
+
+        # add distractors
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(box.type, box.color)
+        self.instrs = OpenBoxInstr(desc)
+
+class Level_OpenDoorLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(door.type, door.color)
+        self.instrs = OpenInstr(desc)
+
+class Level_PassDoorLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        self.door_locked = False
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, is_open=True, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(door.type, door.color)
+        self.instrs = PassInstr(desc)
+
+class Level_PickupLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        obj = self._rand_elem(objs)
+        desc = ObjDesc(obj.type, obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_DropNextLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        next_to_obj = self._rand_elem(objs)
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+        self.carrying.cur_pos = np.array([-1, -1])
+
+        self.instrs = DropNextInstr(
+            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            obj_fixed = ObjDesc(next_to_obj.type, next_to_obj.color),
+            initially_carried_world_obj = self.carrying
+        )
+
+class Level_DropNotNextLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+        
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        not_next_to_obj = self._rand_elem(objs)
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+        self.carrying.cur_pos = np.array([-1, -1])
+
+        self.instrs = DropNotNextInstr(
+            obj_carried = ObjDesc(carried_obj_type, carried_obj_color),
+            obj_fixed = ObjDesc(not_next_to_obj.type, not_next_to_obj.color),
+            initially_carried_world_obj = self.carrying
+        )
+
+class Level_DropNextNothingLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        carried_obj_color = self._rand_elem(COLOR_NAMES)
+        carried_obj_type = self._rand_elem(['key', 'ball', 'box'])
+
+        self.carrying = WorldObj.decode(OBJECT_TO_IDX[carried_obj_type], COLOR_TO_IDX[carried_obj_color], 0)
+
+        self.instrs = DropNextNothingInstr(
+            initially_carried_world_obj = self.carrying,
+            obj_to_drop = ObjDesc(carried_obj_type, carried_obj_color)
+        )
+
+## High-level tasks
+### Two-Subgoal Task Group
+class Level_UnlockLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed, door_locked=True)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        target_door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        key, _ = self.add_object(0, 0, 'key', target_door.color)
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_door.type, target_door.color)
+        self.instrs = OpenInstr(desc)
+
+class Level_PickupObjInBoxLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        box = Box(self._rand_color())
+        self.place_in_room(0, 0, box)
+
+        # Add distractors and put one in the above box
+        #   the box and the hidden object together are considered as one distractor
+        #   since only one of them will be visible at a time
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        box.contains = hidden_obj
+
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_GoToObjInBoxLocalR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        box = Box(self._rand_color())
+        self.place_in_room(0, 0, box)
+
+        # Add distractors and put one in the above box
+        #   the box and the hidden object together are considered as one distractor
+        #   since only one of them will be visible at a time
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        box.contains = hidden_obj
+
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_GoToNeighborRoomR2(Level_ActionObjDoorR2):
+    '''
+    Doors are open.
+    '''
+    def __init__(self, seed=None):
+        self.is_open = True
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked, is_open=self.is_open)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_PutNextLocalR2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+### Three-Subgoal Task Group
+class Level_OpenGoToR2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_UnlockGoToR2(Level_ActionObjDoorR2):
+    '''
+    Doors are locked.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed, door_locked=True)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        target_door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+        key, pos = self.add_object(i=0, j=0, kind='key', color=target_door.color)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1, exclude_objs=exclude_objs)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
+class Level_UnblockGoToDoorLocalR2(Level_ActionObjDoorR2):
+    # The doos is closed but not locked
+    # The door is blocked by a key, box or ball
+
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+
+        target_i, target_j = target_door.cur_pos
+
+        # Place the blocker
+        kind = self._rand_elem(['key', 'ball', 'box'])
+        color = self._rand_elem(COLOR_NAMES)
+        blocker = WorldObj.decode(OBJECT_TO_IDX[kind], COLOR_TO_IDX[color], 0)
+        blocker_i = target_i - 1 # the blocker should be on the left of the target door
+        blocker_pos = (blocker_i, target_j)
+        self.grid.set(*blocker_pos, blocker)
+        blocker.init_pos = blocker_pos
+        blocker.cur_pos = blocker_pos
+
+        # Add the rest distracting objects in the starting room
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1)
+
+        self.place_agent(i=0, j=0)
+
+        desc = ObjDesc(target_door.type, target_door.color)
+        self.instrs = GoToInstr(desc)
+
+### Four-Subgoal Task Group
+class Level_OpenPickupR2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+        door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        objs.append(door)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_UnlockPickupR2(Level_ActionObjDoorR2):
+    '''
+    Doors are locked.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed, door_locked=True)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_door, _ = self.add_door(i=0, j=0, locked=self.door_locked)
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+        key, pos = self.add_object(i=0, j=0, kind='key', color=target_door.color)
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors-1, exclude_objs=exclude_objs)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_UnblockDoorGoToR2(Level_ActionObjDoorR2):
+    # The doos is open
+
+    def __init__(self, seed=None):
+        self.is_open = True
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_door, _ = self.add_door(i=0, j=0, locked=self.door_locked, is_open=self.is_open)
+        target_room_i = 1
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = self._rand_elem(target_room_objs)
+        target_i, target_j = target_door.cur_pos
+
+        # Add the rest distracting objects in the starting room
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        objs = self.add_distractors(i=0, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+
+        # Move one object to block the target door
+        blocker = self._rand_elem(objs)
+        self.grid.set(*blocker.cur_pos, None)
+        blocker_i = target_i - 1 # the blocker is on the left of the target door
+        blocker_pos = (blocker_i, target_j)
+        blocker.init_pos = blocker_pos
+        blocker.cur_pos = blocker_pos
+        self.grid.set(*blocker_pos, blocker)
+
+        self.place_agent(i=0, j=0)
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
 for name, level in list(globals().items()):
     if name.startswith('Level_'):
         level.is_bonus = True
