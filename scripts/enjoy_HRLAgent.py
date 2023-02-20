@@ -91,7 +91,8 @@ for skill_desc in skill_library:
     print(skill_desc)
 # Initialize subgoal set
 subgoal_set = LowlevelInstrSet()
-subgoal_indices = range(subgoal_set.num_subgoals_info['total'])
+subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
+subgoal_set.display_all_subgoals()
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 if args.model is None:
@@ -105,6 +106,7 @@ if args.model is None:
     torch.save(acmodel, path)
 
 max_num_episodes = 100
+subgoal_idx = 0
 step = 0
 episode_num = 0
 all_rewards = []
@@ -123,9 +125,11 @@ agent = utils.load_agent(
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True,)
 agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
-print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
+print(f"[Episode: {episode_num+1}] Mission: {mission}")
 if not args.manuall_select_subgoal:
-    print(f"The new subgoal is: {agent.current_subgoal_desc}")
+    subgoal_idx += 1
+    obs["mission"] = agent.current_subgoal_desc
+    print(f"The {subgoal_idx}th subgoal is: {agent.current_subgoal_desc}")
 
 # Run the agent
 done = True
@@ -139,44 +143,64 @@ def get_statistics(arr, num_decimals=4):
 
     return mean, std, max, min
 
+keyboard_input=""
 def keyDownCb(event):
     global obs
     global step
     global episode_num
     global expected_completed_subgoals
     global subgoal_indices
+    global keyboard_input
+    global subgoal_idx
+    global mission
 
     keyName = event.key
+    while keyName != "enter":
+        keyboard_input += keyName
+        return
+    if keyboard_input == "":
+        keyboard_input = "enter"
+
     # Avoiding processing of observation by agent for wrong key clicks
-    if not ((keyName in action_map) or (keyName == "enter") or (int(keyName) in subgoal_indices)):
-        print(f"Keyboard input, {keyName}, is not supported. Please try a valid one.")
+    if not ((keyboard_input in action_map) or (keyboard_input == "enter") or (keyboard_input in subgoal_indices_str)):
+        print(f"Keyboard input, {keyboard_input}, is not supported. Please try a valid one.")
         return
 
 
     # Map the key to an action
-    if keyName in action_map:
-        action = env.actions[action_map[keyName]]
-    elif int(keyName) in subgoal_indices:
-        agent.setup_new_subgoal_and_skill(env, int(keyName))
-        print(f"The new subgoal is: {agent.current_subgoal_desc}")
+    if keyboard_input in action_map:
+        action = env.actions[action_map[keyboard_input]]
+    elif keyboard_input in subgoal_indices_str:
+        subgoal_idx += 1
+        agent.setup_new_subgoal_and_skill(env, int(keyboard_input))
+        print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
+        #obs["mission"] = agent.current_subgoal_desc
+        keyboard_input = ""
+        return
     # Enter: executes the agent's action by the current skill
-    elif keyName == "enter":
+    elif keyboard_input == "enter":
+        print(f"step: {step}, mission: {mission}")
         result = agent.act(obs)
         action = result['action'].item()
     # unsupported key
     else:
-        print(f"The entered key, {keyName}, is not supported.")
+        print(f"The entered key, {keyboard_input}, is not supported.")
         return
 
+    # reset keyboard_input
+    keyboard_input = ""
     obs, reward, done, _ = env.step(action)
+    obs["mission"] = agent.current_subgoal_desc
 
     if args.print_primitive_action_info:
         msg = ""
         if 'dist' in result and 'value' in result:
             dist, value = result['dist'], result['value']
             dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
-            msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-                step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+            msg = "\tcurrent subgoal: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
+                obs['mission'], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+            #msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
+            #    step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
         else:
             msg = "step: {}, mission: {}, action: {}".format(
                 step, obs['mission'], env.get_action_name(action))
@@ -206,17 +230,24 @@ def keyDownCb(event):
         episode_num += 1
         env.seed(args.seed + episode_num)
         obs = env.reset()
-        agent.on_reset(env, obs['mission'], obs) # reset the history and propose the 1st subgoal
+        mission = obs['mission']
+        agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 
         step = 0
+        subgoal_idx = 0
         print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
-        print(f"The new subgoal is: {agent.current_subgoal_desc}")
+        if not args.manuall_select_subgoal:
+            subgoal_idx += 1
+            #obs["mission"] = agent.current_subgoal_desc
+            print(f"The {subgoal_idx} subgoal is: {agent.current_subgoal_desc}")
     else:
         # the mission is done yet
         if agent.current_subgoal_status != 0 and (not args.manuall_select_subgoal):
+            subgoal_idx += 1
             # the current subgoal is done, so propose the next subgoal
             agent.propose_new_subgoal(env)
-            print(f"The new subgoal is: {agent.current_subgoal_desc}")
+            #obs["mission"] = agent.current_subgoal_desc
+            print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
         step += 1
 
 

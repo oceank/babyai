@@ -139,6 +139,10 @@ class LowlevelInstrSet:
 
         return subgoals
 
+    def display_all_subgoals(self):
+        for subgoal in self.all_subgoals:
+            print(f"[{subgoal[0]}] {subgoal[1].instr_desc}")
+
     def reset_valid_subgoals(self, env):
         self.initial_valid_subgoals = self.filter_valid_subgoals(self.all_subgoals, env, need_reset=True)
         self.current_valid_subgoals = self.initial_valid_subgoals.copy()
