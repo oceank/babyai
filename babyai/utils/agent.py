@@ -761,11 +761,12 @@ class HRLAgent(ModelAgent):
         self.history.dones = []
 
 
-    def on_reset(self, env, goal, initial_obs):
+    def on_reset(self, env, goal, initial_obs, propose_first_subgoal=True):
         self.reset_history(goal, initial_obs)
         self.current_time_step = 0
-        # propose the first subgoal
-        self.propose_new_subgoal(env)
+        if propose_first_subgoal:
+            # propose the first subgoal
+            self.propose_new_subgoal(env)
 
     # New-Subgoal Request Module
     #   the mission just starts
@@ -865,6 +866,9 @@ class HRLAgent(ModelAgent):
             action = dist.sample()
         highlevel_action = action[0, result_idx].item()
 
+        self.setup_new_subgoal_and_skill(env, highlevel_action)
+
+    def setup_new_subgoal_and_skill(self, env, highlevel_action):
         # update the current subgoal and skill
         self.current_subgoal = self.subgoal_set.all_subgoals[highlevel_action]
         self.current_subgoal_idx = self.current_subgoal[0]

@@ -47,6 +47,10 @@ parser.add_argument("--skill-arch", default='bow_endpool_res',
 parser.add_argument("--skill-budget-steps", type=int, default=24,
                     help="the maximum number of steps allowed for each skill (default: 24)")
 
+parser.add_argument("--print-primitive-action-info", action="store_true", default=False,
+                    help="print out the information of each primitive action by a skill")
+parser.add_argument("--manuall-select-subgoal", action="store_true", default=False,
+                    help="manually select a subgoal by an expert")
 
 args = parser.parse_args()
 
@@ -87,6 +91,7 @@ for skill_desc in skill_library:
     print(skill_desc)
 # Initialize subgoal set
 subgoal_set = LowlevelInstrSet()
+subgoal_indices = range(subgoal_set.num_subgoals_info['total'])
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 if args.model is None:
@@ -117,14 +122,14 @@ agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True,)
-agent.on_reset(env, mission, obs) # reset the history and propose the 1st subgoal
+agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
-print(f"The new subgoal is: {agent.current_subgoal_desc}")
+if not args.manuall_select_subgoal:
+    print(f"The new subgoal is: {agent.current_subgoal_desc}")
 
 # Run the agent
 done = True
 action = None
-
 
 def get_statistics(arr, num_decimals=4):
     mean = np.round(arr.mean(), decimals=num_decimals)
@@ -139,11 +144,11 @@ def keyDownCb(event):
     global step
     global episode_num
     global expected_completed_subgoals
+    global subgoal_indices
 
     keyName = event.key
-
     # Avoiding processing of observation by agent for wrong key clicks
-    if keyName not in action_map and keyName != "enter":
+    if not ((keyName in action_map) or (keyName == "enter") or (int(keyName) in subgoal_indices)):
         print(f"Keyboard input, {keyName}, is not supported. Please try a valid one.")
         return
 
@@ -151,7 +156,10 @@ def keyDownCb(event):
     # Map the key to an action
     if keyName in action_map:
         action = env.actions[action_map[keyName]]
-    # Enter executes the agent's action
+    elif int(keyName) in subgoal_indices:
+        agent.setup_new_subgoal_and_skill(env, int(keyName))
+        print(f"The new subgoal is: {agent.current_subgoal_desc}")
+    # Enter: executes the agent's action by the current skill
     elif keyName == "enter":
         result = agent.act(obs)
         action = result['action'].item()
@@ -162,16 +170,17 @@ def keyDownCb(event):
 
     obs, reward, done, _ = env.step(action)
 
-    msg = ""
-    if 'dist' in result and 'value' in result:
-        dist, value = result['dist'], result['value']
-        dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
-        msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-            step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
-    else:
-        msg = "step: {}, mission: {}, action: {}".format(
-            step, obs['mission'], env.get_action_name(action))
-    print(msg)
+    if args.print_primitive_action_info:
+        msg = ""
+        if 'dist' in result and 'value' in result:
+            dist, value = result['dist'], result['value']
+            dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
+            msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
+                step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+        else:
+            msg = "step: {}, mission: {}, action: {}".format(
+                step, obs['mission'], env.get_action_name(action))
+        print(msg)
 
     # Update the current_time_step and accumulate information to the agent's history
     agent.current_time_step += 1
@@ -182,14 +191,14 @@ def keyDownCb(event):
     if agent.current_subgoal_status != 0:
         subgoal_success = agent.current_subgoal_status == 1
         subgoal_status_str = "Success" if subgoal_success else "Failure"
-        print(f"\tSubgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
+        print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
 
         # append the subgoal status to the agent's history
         agent.update_history_with_subgoal_status()
 
     if done:
         if agent.current_subgoal_status == 0:
-            print(f"\tSubgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
+            print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
             agent.update_history_with_subgoal_status()
 
         print(f"Reward: {reward}\n")
@@ -204,7 +213,7 @@ def keyDownCb(event):
         print(f"The new subgoal is: {agent.current_subgoal_desc}")
     else:
         # the mission is done yet
-        if agent.current_subgoal_status != 0:
+        if agent.current_subgoal_status != 0 and (not args.manuall_select_subgoal):
             # the current subgoal is done, so propose the next subgoal
             agent.propose_new_subgoal(env)
             print(f"The new subgoal is: {agent.current_subgoal_desc}")
@@ -221,22 +230,23 @@ while True:
     env.render("human")
     if not args.manual_mode:
         result = agent.act(obs)
-        action = result['action']
+        action = result['action'].item()
         obs, reward, done, _ = env.step(action)
 
         action_name = env.get_action_name(action)
 
         # agent.analyze_feedback(reward, done)
-        msg = ""
-        if 'dist' in result and 'value' in result:
-            dist, value = result['dist'], result['value']
-            dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
-            msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-                step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
-        else:
-            msg = "step: {}, mission: {}, action: {}".format(
-                step, obs['mission'], env.get_action_name(action))
-        print(msg)
+        if args.print_primitive_action_info:
+            msg = ""
+            if 'dist' in result and 'value' in result:
+                dist, value = result['dist'], result['value']
+                dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
+                msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
+                    step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+            else:
+                msg = "step: {}, mission: {}, action: {}".format(
+                    step, obs['mission'], env.get_action_name(action))
+            print(msg)
 
         # Update the current_time_step and accumulate information to the agent's history
         agent.current_time_step += 1
@@ -247,14 +257,14 @@ while True:
         if agent.current_subgoal_status != 0:
             subgoal_success = agent.current_subgoal_status == 1
             subgoal_status_str = "Success" if subgoal_success else "Failure"
-            print(f"\tSubgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
+            print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
 
             # append the subgoal status to the agent's history
             agent.update_history_with_subgoal_status()
 
         if done:
             if agent.current_subgoal_status == 0:
-                print(f"\tSubgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
+                print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
                 agent.update_history_with_subgoal_status()
 
             print(f"Reward: {reward}\n")
