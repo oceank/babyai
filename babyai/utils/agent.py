@@ -587,15 +587,356 @@ class BotAgent:
     def analyze_feedback(self, reward, done):
         pass
 
+class HRLAgentHistory():
+    '''
+    This class is used to store the history of a HRL agent.
+        *   goal: the agent's goal
+        *   token_seqs: a sqeuence of partial visual observations up to now: includeing attention masks and media_locations
+        *   vis_obss:a sequence of images represents the agent's observational history up to now,
+            including the mission goal, each subgoal's description, status, and corresponding
+            visual observations.
+        *   highlevel_actions
+        *   highlevel_timesteps
+        *   hla_hid_indices: highlevel actions' corresponding hidden state indices
+        *   subgoals_status
+        *   lowlevel_actions
+        *   rewards
+    '''
+    def __init__(
+        self,
+        goal=None,
+        token_seqs=None,
+        vis_obss=None,
+        highlevel_actions=None,
+        highlevel_timesteps=None,
+        hla_hid_indices=None,
+        subgoals_status=None,
+        lowlevel_actions=None,
+        rewards=None,
+        dones=None,):
+        self.goal = goal
+        self.token_seqs = token_seqs
+        self.vis_obss = vis_obss
+        self.highlevel_actions = highlevel_actions
+        self.highleve_time_steps = highlevel_timesteps
+        self.hla_hid_indices = hla_hid_indices
+        self.subgoals_status = subgoals_status
+        self.lowlevel_actions = lowlevel_actions
+        self.rewards = rewards
+        self.dones = dones
+        self.token_seq_lens = None
+        if self.token_seqs is not None:
+            self.token_seq_lens = self.token_seqs['attention_mask'].sum(dim=1)
 
-def load_agent(env, model_name, demos_name=None, demos_origin=None, argmax=True, env_name=None, subgoals=None, goal=None, check_subgoal_completion=False):
+class HRLAgent(ModelAgent):
+    """
+    Major modules of the HRL agent:
+    1   High-Level Policy Module:
+        *   When there is an incoming request of a new subgoal,  the agent proposes the next
+            subgoal based on the summary of the agent's observational history up to now.
+        *   The new subgoal is then used to select a skill from the skill library.
+    2   Low-Level Policy Module:
+        *   According to the new subgoal and the agent's observational history from the
+            start of the new subgoal to the current time step, the selected skill outputs
+            a primitive action at each time step until the new subgoal is done.
+    3   New-Subgoal Request Module:
+        *   Request a new sugboal when any of the following conditions is met:
+            1.  mission starts
+            2.  the current subgoal is done
+    4   History Summarization/Abstraction Module (TBD):
+        *   Summarize the agent's observational history into a compact representation.
+    5   Kowledge Of World Module (TBD):
+        *   Provide the agent with the learned knowledge of the world.
+
+    Data Members:
+        skill_library: a dictionary where each elem is a skill. Each skill itself is a dictionary that has the properties:
+            description
+            model_name
+            model: policy model
+            obss_preprocessor
+            budget_steps
+        subgoal_set: an instance of Class LowlevelInstrSet that contains a set of instructions for subgoals
+        history: an instance of Class HRLAgentHistory
+        current_skill:
+        current_skill_memory:
+        current_subgoal:
+        current_subgoal_status:
+        current_subgoal_start_time:
+        current_time_step:
+    """
+    def __init__(
+        self, model_or_name, obss_preprocessor, argmax,
+        skill_library, skill_memory_size, subgoal_set,
+        use_vlm=True):
+
+        self.skill_library = skill_library
+        self.subgoal_set = subgoal_set
+
+        # for the high-level policy module
+        if obss_preprocessor is None:
+            assert isinstance(model_or_name, str)
+            obss_preprocessor = utils.ObssPreprocessor(model_or_name)
+        self.obss_preprocessor = obss_preprocessor
+        if isinstance(model_or_name, str):
+            self.model = utils.load_model(model_or_name)
+            if torch.cuda.is_available():
+                self.model.cuda()
+        else:
+            self.model = model_or_name
+        self.num_highlevel_actions = subgoal_set.num_subgoals_info['total']
+        self.history = HRLAgentHistory()
+
+        # for the low-level policy module
+        self.skill_memory_size = skill_memory_size
+        self.current_skill = None
+        self.current_subgoal = None
+        self.current_subgoal_idx = None
+        self.current_subgoal_instr = None
+        self.current_subgoal_desc  = None
+        self.current_subgoal_status = None # 0: in progress, 1: success, 2: faliure
+        self.current_subgoal_start_time = None
+        self.current_subgoal_memory = None
+        self.current_time_step = None
+
+        # other data members
+        self.debug = False
+        self.device = next(self.model.parameters()).device
+        self.argmax = argmax
+        self.use_vlm = use_vlm
+        ## Currently only support training and testing with one environment instance
+        self.goal = None
+
+        self.subgoals_token_seqs = None
+        self.subgoals_token_lens = None
+        self.subgoal_status_token_seqs = None
+        self.subgoal_status_token_lens = None
+        if self.use_vlm:
+            # the model has tokenizer data member
+            # subgoal[1]: an Instr instance for the subgoal
+            # '!': match the description format of a completed subgoal in the collection of demonstrations.
+            self.subgoals_token_seqs = self.model.tokenizer(
+                [subgoal[1].instr_desc+"!" for subgoal in self.subgoal_set.all_subgoals],
+                return_tensors="pt",
+                padding="max_length")
+            self.subgoals_token_seqs.to(self.device)
+            self.subgoals_token_lens = self.subgoals_token_seqs['attention_mask'].sum(1)
+            subgoal_statuses_str = ["[InProgress]", "[Success]", "[Failure]"]
+            self.subgoal_status_token_seqs = self.model.tokenizer(
+                subgoal_statuses_str,
+                return_tensors="pt",
+                padding="max_length")
+            self.subgoal_status_token_seqs.to(self.device)
+            self.subgoal_status_token_lens = self.subgoal_status_token_seqs['attention_mask'].sum(1)
+
+    def set_debug_mode(self, debug):
+        self.debug = debug
+
+    def set_goal(self, goal):
+        self.goal = goal
+
+    def get_goal(self):
+        return self.goal
+
+    def reset_history(self, goal, initial_obs):
+        self.history.goal = goal
+        self.history.token_seqs = self.model.tokenizer(
+                self.history.goal+"|image|[start]",
+                return_tensors="pt",
+                padding="max_length")
+        self.history.token_seqs.to(self.device)
+        self.history.token_seq_lens = self.history.token_seqs['attention_mask'].sum(dim=1)
+        self.history.hla_hid_indices = [self.history.token_seq_lens[0]-1]
+        self.history.vis_obss = [initial_obs]
+        '''
+        self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+        self.history.token_seqs['media_locations'] = media_locations
+        '''
+
+        self.history.highlevel_actions = []
+        self.history.highleve_time_steps = []
+        self.history.subgoals_status = []
+        self.history.lowlevel_actions = []
+        self.history.rewards = []
+        self.history.dones = []
+
+
+    def on_reset(self, env, goal, initial_obs):
+        self.reset_history(goal, initial_obs)
+        self.current_time_step = 0
+        # propose the first subgoal
+        self.propose_new_subgoal(env)
+
+    # New-Subgoal Request Module
+    #   the mission just starts
+    #   the current subgoal is done
+    # Assume the mission is not done yet.
+    def need_new_subgoal(self):
+        return self.current_time_step==0 or self.current_subgoal_status!=0
+
+
+    # Accumulate envrionment information to the history immediately after the agent takes an action
+    def accumulate_env_info_to_history(self, action, obs, reward, done):
+        self.history.vis_obss.append(obs)
+        self.history.lowlevel_actions.append(action)
+        self.history.rewards.append(reward)
+        self.history.dones.append(done)
+
+    # Call this function when the current subgoal is done
+    # Assume information given by the environment has been accumulated in the history after an action.
+    # Call this function after verifing the current subgoal and before proposing a new subgoal.
+    def update_history_with_subgoal_status(self):
+        # Append the subgoal's visual obs seq ('|image...image|') to the history
+        vis_obs_seq_str ="|" + "image"*(self.current_time_step-self.current_subgoal_start_time) + "|"
+        subgoal_vis_token_seqs = self.model.tokenizer(
+                vis_obs_seq_str,
+                return_tensors="pt",
+                padding="max_length")
+        subgoal_vis_token_seqs.to(self.device)
+        subgoal_vis_token_lens = self.subgoal_status_token_seqs['attention_mask'].sum(1)
+        start = self.history.token_seq_lens[0]
+        subgoal_vis_token_len = subgoal_vis_token_lens[0]
+        end = start + subgoal_vis_token_len
+
+        self.history.token_seqs['input_ids'][0, start:end] = subgoal_vis_token_seqs['input_ids'][0, :subgoal_vis_token_len]
+        self.history.token_seqs['attention_mask'][0, start:end] = 1
+        self.history.token_seq_lens[0] += subgoal_vis_token_len
+
+        # Append the subgoal's status to the history
+        start = self.history.token_seq_lens[0]
+        subgoal_status_token_len = self.subgoal_status_token_lens[self.current_subgoal_status]
+        end = start + subgoal_status_token_len
+
+        self.history.token_seqs['input_ids'][0, start:end] = self.subgoal_status_token_seqs['input_ids'][self.current_subgoal_status, :subgoal_status_token_len]
+        self.history.token_seqs['attention_mask'][0, start:end] = 1
+        self.history.token_seq_lens[0] += subgoal_status_token_len
+
+        # Append auxiliary information to the history. hla_hid_index corresponds the index of token, ']', in the last subgoal's status.
+        self.history.hla_hid_indices.append(self.history.token_seq_lens[0]-1)
+        self.history.subgoals_status.append(self.current_subgoal_status)
+
+        '''
+        # Update 'image_embeds' and 'media_locations'
+        with torch.no_grad():
+            self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+        self.history.token_seqs['media_locations'] = media_locations
+        '''
+
+    # Verify if the current subgoal is done
+    #   the current subgoal is completed
+    #   the budget steps are used up
+    # Assume that the 'action' has been taken by the agent
+    # Need to set the new hld_hid_index when the current subgoal is done after calling this funciton.
+    def verify_current_subgoal(self, action):
+        budget_steps_used_up = (self.current_time_step - self.current_subgoal_start_time) >= self.current_skill['budget_steps']
+        status = self.current_subgoal_instr.verify(action)
+        is_successful = (status == 'success')
+        if is_successful:
+            self.current_subgoal_status = 1
+            if self.debug:
+                print(f"===> [Subgoal Completed] {self.current_subgoal_desc}")
+        elif budget_steps_used_up:
+            self.current_subgoal_status = 2
+            if self.debug:
+                print(f"===> [Subgoal Failed] {self.current_subgoal_desc}")
+
+    # Note: currently support only one environment instance
+    # Based on the current self.history, decide the next highlevel action (the next subgoal and proper skill for it)
+    # * First update the history with image_embeds and media_locations, then apply the model (VLM) to get the high-level action
+    # * Update self.current_subgoal, self.current_skill
+    # * Append the token sequence of the new subgoal to self.token_seqs
+    def propose_new_subgoal(self, env):
+        with torch.no_grad():
+        # Update 'image_embeds' and 'media_locations'
+            self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+            media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+            self.history.token_seqs['media_locations'] = media_locations
+
+            model_results = self.model(self.history)
+            result_idx = self.history.hla_hid_indices[-1]
+            dist = model_results['dist']
+            #value = model_results['value'][0, result_idx]
+            #logits = model_results['logits'][0, result_idx]
+
+        if self.argmax:
+            action = dist.probs.argmax(1)
+        else:
+            action = dist.sample()
+        highlevel_action = action[0, result_idx].item()
+
+        # update the current subgoal and skill
+        self.current_subgoal = self.subgoal_set.all_subgoals[highlevel_action]
+        self.current_subgoal_idx = self.current_subgoal[0]
+        self.current_subgoal_instr = self.current_subgoal[1]
+        self.current_subgoal_desc = self.current_subgoal_instr.instr_desc
+        self.current_subgoal_status = 0 # 0: in progress, 1: success, 2: faliure
+        ##  self.current_time_step has been updated before calling this function
+        self.current_subgoal_start_time = self.current_time_step
+        self.current_subgoal_memory = torch.zeros(1, self.skill_memory_size, device=self.device)
+        self.current_subgoal_instr.reset_verifier(env)
+
+        skill_desc = self.current_subgoal[2]
+        self.current_skill = self.skill_library[skill_desc]
+
+        # update the history
+        self.history.highleve_time_steps.append(self.current_subgoal_start_time)
+        self.history.highlevel_actions.append(highlevel_action)
+        ## append the token sequence of the new subgoal to self.token_seqs
+        if self.use_vlm:
+            b_idx = 0
+            start = self.history.token_seq_lens[b_idx]
+            new_subgoal_token_len = self.subgoals_token_lens[highlevel_action]
+            end = start + new_subgoal_token_len
+            self.history.token_seqs['input_ids'][b_idx, start:end] = self.subgoals_token_seqs['input_ids'][highlevel_action, :new_subgoal_token_len]
+            self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
+
+    '''
+        Assume that neither the mission goal nor the current subgoal is done.
+        Functionality: apply the current skill to suggest the next primitive action for solving the current subgoal
+    '''
+    def act(self, obs):
+        preprocessed_obs = self.current_skill['obss_preprocessor']([obs], device=self.device)
+        with torch.no_grad():
+            result = self.current_skill['model'](preprocessed_obs, self.current_subgoal_memory)
+            dist = result['dist']
+            value = result['value']
+            self.current_subgoal_memory = result['memory']
+
+        if self.argmax:
+            action = dist.probs.argmax(1)
+        else:
+            action = dist.sample()
+
+        return {'action': action,
+                'dist': dist,
+                'value': value}
+
+    # TBD
+    def analyze_feedback(self, reward, done):
+        if isinstance(done, tuple):
+            for i in range(len(done)):
+                if done[i]:
+                    self.current_subgoal_memory[i, :] *= 0.
+        else:
+            self.current_subgoal_memory *= (1 - done)
+
+def load_agent(
+        env,
+        model_name, argmax=True,
+        subgoals=None, goal=None,
+        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True,
+        demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,):
     # env_name needs to be specified for demo agents
-    if model_name == "SubGoalModelAgent":
-        return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax)
-    elif model_name == 'BOT':
+    if model_name == 'BOT':
         return BotAgent(env)
+    elif model_name == "SubGoalModelAgent":
+        return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax)
     elif model_name is not None:
         obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)
-        return ModelAgent(model_name, obss_preprocessor, argmax)
+        if skill_library is not None:
+            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm)
+        else:
+            return ModelAgent(model_name, obss_preprocessor, argmax)
     elif demos_origin is not None or demos_name is not None:
         return DemoAgent(demos_name=demos_name, env_name=env_name, origin=demos_origin, check_subgoal_completion=check_subgoal_completion)

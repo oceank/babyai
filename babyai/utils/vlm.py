@@ -617,14 +617,17 @@ def add_image_padding_and_preprocess(all_obss, image_preproc):
 
     return image_tensors
 
-def cal_media_loc_labels_token_weights(vlm_input, device=torch.device("cpu")):
+def cal_media_loc_labels_token_weights(vlm_input, device=torch.device("cpu"), only_media_locations=False):
     batch_size = vlm_input['input_ids'].shape[0]
     input_token_seq_lens = vlm_input['attention_mask'].sum(dim=-1)
 
     # Compute media_locations, labels, instance_weights
     media_locations = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
-    label_masks = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
-    instance_weights = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.float, device=device)
+    label_masks = None
+    instance_weights = None
+    if not only_media_locations:
+        label_masks = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.bool, device=device)
+        instance_weights = torch.zeros(vlm_input['input_ids'].shape, dtype=torch.float, device=device)
     sym_bar_locations = (vlm_input['input_ids'] == 91) # '|'
 
     for b_idx in range(batch_size):
@@ -639,7 +642,7 @@ def cal_media_loc_labels_token_weights(vlm_input, device=torch.device("cpu")):
             if i%2 == 0:
                 media_locations[b_idx, sym_bar_inds_1[i]] = True
                 media_locations[b_idx, sym_bar_inds_1[i]+2:sym_bar_inds_2[i]] = True
-            else:
+            elif (i%2==1) and (not only_media_locations):
                 label_masks[b_idx, (sym_bar_inds_1[i]+4):sym_bar_inds_2[i]] = True
                 instance_weights[b_idx, (sym_bar_inds_1[i]+4):sym_bar_inds_2[i]] = 1.0/(sym_bar_inds_2[i]-sym_bar_inds_1[i]-4)
     return media_locations, label_masks, instance_weights

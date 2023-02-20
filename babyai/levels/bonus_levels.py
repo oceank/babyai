@@ -1554,7 +1554,7 @@ class Level_PickupLocalR3(Level_ActionObjDoorR3):
         desc = ObjDesc(obj.type, obj.color)
         self.instrs = PickupInstr(desc)
 
-class Level_DropNextLocalR3(Level_ActionObjDoorR3):
+class Level_DropNextToLocalR3(Level_ActionObjDoorR3):
     def __init__(self, seed=None):
         super().__init__(seed=seed)
 
@@ -1585,7 +1585,7 @@ class Level_DropNextLocalR3(Level_ActionObjDoorR3):
             initially_carried_world_obj = self.carrying
         )
 
-class Level_DropNotNextLocalR3(Level_ActionObjDoorR3):
+class Level_DropNotNextToLocalR3(Level_ActionObjDoorR3):
     def __init__(self, seed=None):
         super().__init__(seed=seed)
 

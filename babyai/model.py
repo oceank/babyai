@@ -611,7 +611,7 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
         self.arch = arch
         self.obs_space = obs_space
 
-        self.use_FiLLM = use_FiLM
+        self.use_FiLM = use_FiLM
 
         for part in self.arch.split('_'):
             if part not in ['original', 'bow', 'pixels', 'endpool', 'res']:
@@ -867,3 +867,82 @@ class FlamingoACModel(nn.Module, babyai.rl.ACModel):
             vlm_input['encoded_input']['image_embeds'] = image_embeds
              
         return vlm_input
+
+
+# ACModel Using Flamingo to provide the feature to the policy and value headers
+# The image encoder is trained together with cross-attention modules in Flamingo
+# Temporarily use the class name 'FACModel' to differentiate from the 'FlamingoACModel' class for now
+class FACModel(nn.Module, babyai.rl.ACModel):
+    def __init__(
+        self, num_of_actions, device,
+        vlm=None, tokenizer=None, img_encoder=None,
+        max_desc_len=None, max_lang_model_input_len=None, sample_next_token=False,
+        use_pixel=False):
+
+        super().__init__()
+
+        self.device = device
+        self.use_vlm = True
+        self.use_pixel = use_pixel # TBD: remove it
+
+        # Use the Word Emebdding of the GPT2 model
+        self.desc_vocabulary_size = vlm.wte.num_embeddings
+        self.desc_embedding_dim   = vlm.wte.embedding_dim
+        self.embedding_size = vlm.wte.embedding_dim
+            
+
+        self.max_desc_len = max_desc_len # the maximum length of tokens for a generated sentence at one time step
+        self.max_lang_model_input_len = max_lang_model_input_len # the maximum length of tokens the language model and tokenizer can handel
+
+
+        # Define actor's model
+        self.actor = nn.Sequential(
+            nn.Linear(self.embedding_size, 64),
+            nn.Tanh(),
+            nn.Linear(64, num_of_actions)
+        )
+
+        # Define critic's model
+        self.critic = nn.Sequential(
+            nn.Linear(self.embedding_size, 64),
+            nn.Tanh(),
+            nn.Linear(64, 1)
+        )
+
+        # Initialize parameters correctly
+        self.apply(initialize_parameters)
+
+        # Avoid the impact of the above parameter initialization
+        self.vlm=vlm
+        self.tokenizer=tokenizer
+        self.img_encoder = img_encoder
+
+        self.to(self.device)
+
+    # FixMe: Currently only support only one process/one running envirionment
+    # obss: a list of obs object that is a dict of "image" and "mission"
+    #       obs['image']    : visual observation from the environment
+    #       obs['mission]   : a string
+    def forward(self, history):
+
+        vlm_input = history.token_seqs
+
+        vlm_output = self.vlm(**vlm_input, return_dict=True, extract_feature=True)
+        # shape of embedding: (b, max_lang_model_input_len, gpt2_embedding_size)
+        embedding = vlm_output.last_hidden_state
+
+        # dist: (b, max_lang_model_input_len, num_of_actions)
+        #   dist.sample(): (b, max_lang_model_input_len)
+        # value: (b, max_lang_model_input_len)
+        x = self.actor(embedding)
+        logits=F.log_softmax(x, dim=-1)
+        dist = Categorical(logits=logits)
+
+        x = self.critic(embedding)
+        value = x.squeeze(-1)
+
+
+        result = {'dist': dist, 'value': value, 'logits': logits}
+
+        return result
+

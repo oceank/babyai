@@ -8,7 +8,7 @@ from babyai.utils.demos import (
 from babyai.utils.format import ObssPreprocessor, IntObssPreprocessor, get_vocab_path
 from babyai.utils.log import (
     get_log_path, get_log_dir, synthesize, configure_logging)
-from babyai.utils.model import get_model_dir, load_model, save_model, load_skill
+from babyai.utils.model import get_model_dir, load_model, save_model, load_skill, create_random_hrl_vlm_model
 
 
 def storage_dir():

@@ -12,6 +12,8 @@ OBJ_TYPES_NOT_DOOR = list(filter(lambda t: t != 'door', OBJ_TYPES))
 # Locations are all relative to the agent's starting position
 LOC_NAMES = ['left', 'right', 'front', 'behind']
 
+SKILL_DESCRIPTIONS = ["GoTo", "OpenBox", "OpenDoor", "PassDoor", "Pickup", "DropNextTo", "DropNextNothing"]
+
 # Environment flag to indicate that done actions should be
 # used by the verifier
 use_done_actions = os.environ.get('BABYAI_DONE_ACTIONS', False)
@@ -46,21 +48,12 @@ class LowlevelInstrSet:
     The object is an instance of ObjDesc.
     """
 
-
-
     def __init__(self, object_types=None, object_colors=None):
         self.object_types = object_types or OBJ_TYPES
         self.object_colors = object_colors or COLOR_NAMES
-        self.num_subgoals_info = {
-            "total": 0,
-            "open_door": 0,
-            "pass_door": 0,
-            "open_box": 0,
-            "go_to": 0,
-            "pick_up": 0,
-            "drop_next_to": 0,
-            "drop_next_to_nothing": 0
-        }
+        self.num_subgoals_info = {"total": 0}
+        for skill_desc in SKILL_DESCRIPTIONS:
+            self.num_subgoals_info[skill_desc] = 0
 
         self.all_subgoals = self.generate_all_subgoals()
         self.initial_valid_subgoals = []
@@ -81,7 +74,7 @@ class LowlevelInstrSet:
             instr.instr_desc = 'go to ' + obj_desc
         elif isinstance(instr, PickupInstr): # PickupLocal
             instr.instr_desc = 'pick up ' + obj_desc
-        elif isinstance(instr, DropNextInstr): # DropNextLocal
+        elif isinstance(instr, DropNextInstr): # DropNextToLocal
             instr.instr_desc = 'drop next to ' + obj_desc
         elif isinstance(instr, DropNextNothingInstr): # DropNextNothingLocal
             instr.instr_desc = 'drop ' + obj_desc
@@ -99,7 +92,7 @@ class LowlevelInstrSet:
             The door is open and unblocked on both sides.
         PickupLocal:
             If nothing has been carried, then an object, like a key, box, ball, can be picked.
-        DropNextLocal:
+        DropNextToLocal:
             The drop location is next to an object, key, box, ball.
             Can only drop onto an 'empty' cell.
         DropNextNothingLocal:
@@ -113,52 +106,36 @@ class LowlevelInstrSet:
         No difference between 'a' and 'the' 
         """
 
-        subgoal_instructions = []
-        open_door_instrs = []
-        open_box_instrs = []
-        pickup_instrs = []
-        goto_instrs = []
-        pass_door_instrs = []
-        drop_nextto_instrs = []
-        drop_nextto_nothing_instrs = []
+        subgoal_instructions_by_skill = {}
+        for skill_desc in SKILL_DESCRIPTIONS:
+            subgoal_instructions_by_skill[skill_desc] = []
 
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
                 if obj_type == 'door':
-                    open_door_instrs.append(OpenInstr(obj))
-                    pass_door_instrs.append(PassInstr(obj))
+                    subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
+                    subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
                 else:
-                    drop_nextto_nothing_instrs.append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
-                    pickup_instrs.append(PickupInstr(obj))
+                    subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
+                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
                     if obj_type == 'box':
-                        open_box_instrs.append(OpenBoxInstr(obj))
+                        subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
-                goto_instrs.append(GoToInstr(obj))
-                drop_nextto_instrs.append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
-
-        subgoal_instructions = []
-        subgoal_instructions.extend(open_door_instrs)
-        subgoal_instructions.extend(pass_door_instrs)
-        subgoal_instructions.extend(open_box_instrs)
-        subgoal_instructions.extend(pickup_instrs)
-        subgoal_instructions.extend(goto_instrs)
-        subgoal_instructions.extend(drop_nextto_instrs)
-        subgoal_instructions.extend(drop_nextto_nothing_instrs)
-
-        self.num_subgoals_info['open_door'] = len(open_door_instrs)
-        self.num_subgoals_info['pass_door'] = len(pass_door_instrs)
-        self.num_subgoals_info['open_box']  = len(open_box_instrs)
-        self.num_subgoals_info['go_to']     = len(goto_instrs)
-        self.num_subgoals_info['pick_up']   = len(pickup_instrs)
-        self.num_subgoals_info['drop_next_to'] = len(drop_nextto_instrs)
-        self.num_subgoals_info['drop_next_to_nothing'] = len(drop_nextto_nothing_instrs)
-        self.num_subgoals_info['total'] = len(subgoal_instructions)
+                subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
 
         subgoals = []
-        for subgoal_idx, subgoal_instr in enumerate(subgoal_instructions):
-            self.generate_instr_desc(subgoal_instr, acticle='a')
-            subgoals.append((subgoal_idx, subgoal_instr))
+        subgoal_idx = 0
+        for skill_desc in SKILL_DESCRIPTIONS:
+            self.num_subgoals_info[skill_desc] = len(subgoal_instructions_by_skill[skill_desc])
+            for subgoal_instr in subgoal_instructions_by_skill[skill_desc]:
+                self.generate_instr_desc(subgoal_instr, acticle='a')
+                # subgoal: 0-subgoal_idx, 1-subgoal_instr, 2-skill_desc
+                subgoals.append((subgoal_idx, subgoal_instr, skill_desc))
+                subgoal_idx += 1
+        # The variable subgoal_idx is the total number of subgoals
+        self.num_subgoals_info['total'] = subgoal_idx
 
         return subgoals
 
