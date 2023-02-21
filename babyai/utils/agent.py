@@ -900,6 +900,7 @@ class HRLAgent(ModelAgent):
         Functionality: apply the current skill to suggest the next primitive action for solving the current subgoal
     '''
     def act(self, obs):
+        obs['mission'] = self.current_subgoal_desc
         preprocessed_obs = self.current_skill['obss_preprocessor']([obs], device=self.device)
         with torch.no_grad():
             result = self.current_skill['model'](preprocessed_obs, self.current_subgoal_memory)

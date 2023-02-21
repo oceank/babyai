@@ -128,7 +128,6 @@ agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
 if not args.manuall_select_subgoal:
     subgoal_idx += 1
-    obs["mission"] = agent.current_subgoal_desc
     print(f"The {subgoal_idx}th subgoal is: {agent.current_subgoal_desc}")
 
 # Run the agent
@@ -174,7 +173,6 @@ def keyDownCb(event):
         subgoal_idx += 1
         agent.setup_new_subgoal_and_skill(env, int(keyboard_input))
         print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
-        #obs["mission"] = agent.current_subgoal_desc
         keyboard_input = ""
         return
     # Enter: executes the agent's action by the current skill
@@ -190,7 +188,6 @@ def keyDownCb(event):
     # reset keyboard_input
     keyboard_input = ""
     obs, reward, done, _ = env.step(action)
-    obs["mission"] = agent.current_subgoal_desc
 
     if args.print_primitive_action_info:
         msg = ""
@@ -198,7 +195,7 @@ def keyDownCb(event):
             dist, value = result['dist'], result['value']
             dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
             msg = "\tcurrent subgoal: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-                obs['mission'], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+                agent.current_subgoal_desc, env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
             #msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
             #    step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
         else:
@@ -238,15 +235,13 @@ def keyDownCb(event):
         print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
         if not args.manuall_select_subgoal:
             subgoal_idx += 1
-            #obs["mission"] = agent.current_subgoal_desc
-            print(f"The {subgoal_idx} subgoal is: {agent.current_subgoal_desc}")
+            print(f"The {subgoal_idx}th subgoal is: {agent.current_subgoal_desc}")
     else:
         # the mission is done yet
         if agent.current_subgoal_status != 0 and (not args.manuall_select_subgoal):
             subgoal_idx += 1
             # the current subgoal is done, so propose the next subgoal
             agent.propose_new_subgoal(env)
-            #obs["mission"] = agent.current_subgoal_desc
             print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
         step += 1
 
