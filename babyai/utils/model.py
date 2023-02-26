@@ -78,7 +78,7 @@ def create_random_hrl_vlm_model(
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = "ppo"
-    arch = "hrl-flamingo"
+    arch = "HRL-Flamingo"
     instr = instr_arch
     mem = "mem" 
 
@@ -91,7 +91,7 @@ def create_random_hrl_vlm_model(
         'mem': mem,
         'seed': seed,
         'suffix': suffix}
-    model_name = "{env}_{algo}_{arch}_SKILL_{skill_arch}_{instr}_{mem}_SEED_{seed}_{suffix}".format(**model_name_parts)
+    model_name = "{env}_{algo}_{arch}_SKILL_{skill_arch}_{instr}_{mem}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
