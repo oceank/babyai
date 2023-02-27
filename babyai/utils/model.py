@@ -84,7 +84,7 @@ def create_random_hrl_vlm_model(
         hist = "abs" # abstract
     attn = "all" # cross attend to all previous medias
     if only_attend_immediate_media:
-        attn = "imd" # cross attend to the immediate media   
+        attn = "imd" # cross attend to the immediate media
     arch = f"{arch}_{hist}_{attn}"
     mem = "mem"
     skill_arch = f"{skill_arch}_{skill_instr_arch}_{mem}"

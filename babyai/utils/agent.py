@@ -765,12 +765,6 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_start_time = None
         self.current_subgoal_memory = None
 
-        self.subgoals_token_seqs = None
-        self.subgoals_token_lens = None
-        self.subgoal_status_token_seqs = None
-        self.subgoal_status_token_lens = None
-
-
     def on_reset(self, env, goal, initial_obs, propose_first_subgoal=True):
         self.current_time_step = 0
         self.goal = goal
@@ -791,9 +785,9 @@ class HRLAgent(ModelAgent):
     # Accumulate envrionment information to the history immediately after the agent takes an action
     def accumulate_env_info_to_history(self, action, obs, reward, done):
         self.history.vis_obss.append(obs)
-        self.history.lowlevel_actions.append(action)
-        self.history.rewards.append(reward)
-        self.history.dones.append(done)
+        #self.history.lowlevel_actions.append(action)
+        #self.history.rewards.append(reward)
+        #self.history.dones.append(done)
 
     # Call this function when the current subgoal is done
     # Assume information given by the environment has been accumulated in the history after an action.

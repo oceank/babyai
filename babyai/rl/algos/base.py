@@ -5,7 +5,7 @@ import numpy as np
 from babyai.rl.format import default_preprocess_obss
 from babyai.rl.utils import DictList, ParallelEnv
 from babyai.rl.utils.supervised_losses import ExtraInfoCollector
-from babyai.utils.agent import HRLAgentHistory
+
 
 from einops import rearrange
 
@@ -1029,30 +1029,30 @@ class BaseAlgoFlamingoHRLv1(ABC):
             self.log_probs[ep_idx] = []
 
             # self.obs is a list of observations from multiple environments
-            # Currently only support one process. That is, self.obs only has one element, self.obs[0]
-            self.obs = self.env.reset()
-            goal = self.obs[0]['mission']
-            initial_obs = self.obs[0]
+            # Currently only support one process. That is, self.env.reset() only has one element.
+            self.obs = self.env.reset()[0]
+            goal = self.obs['mission']
+            initial_obs = self.obs
             cur_env = self.env.envs[0]
             self.agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
             self.histories[ep_idx] = self.agent.history
 
-            done = [False]
+            done = False
             episode_num_subgoals = 0
             self.log_episode_num_frames[ep_idx] = 0
-            while not done[0]:
+            while not done:
                 # Check if a subgoal is needed. If yes, generate a subgoal description.
-                if self.agent.subgoal_needed():
+                if self.agent.need_new_subgoal():
                     with torch.no_grad():
-                        highlevel_action, log_prob, value = self.agent.propose_subgoal(cur_env, is_training=True)
+                        highlevel_action, log_prob, value = self.agent.propose_new_subgoal(cur_env, is_training=True)
                         episode_num_subgoals += 1
 
                 # Apply the corresponding skill to solve the subgoal until it is done
-                while (not done[0]) and self.agent.current_subgoal_status == 0:
+                while (not done) and self.agent.current_subgoal_status == 0:
                     # Pretrained Skills Are Fixed:
                     #   no_grad() is applied inside act() such that the pretrained
                     #   skill will not be modified during backward propagation.
-                    result = self.agent.act(self.obs[0])
+                    result = self.agent.act(self.obs)
                     action = result['action'].item()
                     obs, reward, done, _ = cur_env.step(action)
                     # Update the current_time_step and accumulate information to the agent's history
@@ -1079,7 +1079,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
                     self.rewards[ep_idx].append(
                         torch.tensor([
                             self.reshape_reward(obs_, action_, reward_, done_)
-                            for obs_, action_, reward_, done_ in zip(obs, action, reward, done)
+                            for obs_, action_, reward_, done_ in zip([obs], [action], [reward], [done])
                             ], device=self.device
                         )
                     )
@@ -1092,7 +1092,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
             ### current_time_step indicates the number of steps elapsed in this episode
             self.log_episode_num_frames[ep_idx] = self.agent.current_time_step
             self.log_total_consumed_frames += self.log_episode_num_frames[ep_idx]
-            self.log_return[ep_idx] = reward[0] # reward from the environment
+            self.log_return[ep_idx] = reward # a scalar value, reward from the environment
             self.log_reshaped_return[ep_idx] = self.rewards[ep_idx] # reshaped reward
             self.log_num_frames[ep_idx] = self.log_episode_num_frames[ep_idx]
             self.log_num_subgoals[ep_idx] = episode_num_subgoals
