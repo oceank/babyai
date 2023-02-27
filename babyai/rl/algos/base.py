@@ -1035,7 +1035,8 @@ class BaseAlgoFlamingoHRLv1(ABC):
             initial_obs = self.obs
             cur_env = self.env.envs[0]
             self.agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
-            self.histories[ep_idx] = self.agent.history
+            # walkaround for using DictList. only one history per episode for now
+            self.histories[ep_idx] = [self.agent.history]
 
             done = False
             episode_num_subgoals = 0
@@ -1060,7 +1061,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
                     self.agent.accumulate_env_info_to_history(action, obs, reward, done)
                     # check if the current subgoal is done
                     self.agent.verify_current_subgoal(action)
-                    if self.agent.current_subgoal_status != 0: # the current subgoal is done
+                    if done or (self.agent.current_subgoal_status != 0): # the current subgoal is done
                         # subgoal_success = self.agent.current_subgoal_status == 1
                         # append the subgoal status to the agent's history
                         self.agent.update_history_with_subgoal_status()

@@ -123,7 +123,7 @@ mission = obs["mission"]
 agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
-        subgoal_set=subgoal_set, use_vlm=True,)
+        subgoal_set=subgoal_set, use_vlm=True, abstract_history=False)
 agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
 if not args.manuall_select_subgoal:

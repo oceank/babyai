@@ -155,7 +155,8 @@ if args.model is None:
         args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
         lang_model_name=lang_model_name,
         only_attend_immediate_media=args.only_attend_immediate_media,
-        abstract_history=args.abstract_history)
+        abstract_history=args.abstract_history,
+        max_lang_model_input_len=args.max_lang_model_input_len,)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model)
 
@@ -182,7 +183,7 @@ print(f"===>    Initializing the HRL agent")
 train_agent = utils.load_agent(
         env=envs[0], model_name=args.model, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
-        subgoal_set=subgoal_set, use_vlm=True,)
+        subgoal_set=subgoal_set, use_vlm=True, abstract_history=args.abstract_history,)
 
 # Define actor-critic algo
 print(f"===>    Initializing the actor-critic algorithm")

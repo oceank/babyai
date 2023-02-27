@@ -694,8 +694,11 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     entropy_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
                     log_prob_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
 
-                    model_results = self.acmodel(ep.history)
-                    hla_indices = ep.history.hla_hid_indices
+                    model_results = self.acmodel(ep.history[0])
+                    # The last subgoal is suggested based on the embedding of the hidden state
+                    # at the index, hla_hid_indices[-2], since the history here recorders the
+                    # entire history of the episode and thus hla_hid_indices[-1] is not used.
+                    hla_indices = ep.history[0].hla_hid_indices[:-1]
                     dist = model_results['dist']
                     raw_value = model_results['value']
                     raw_entropy = dist.entropy()
@@ -704,19 +707,19 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     value_subgoals[range(num_envs), :] = raw_value[range(num_envs), hla_indices]
                     entropy_subgoals[range(num_envs), :] = raw_entropy[range(num_envs), hla_indices]
                     for i in range(num_of_subgoals):
-                        log_prob_subgoals[0, i] = dist.log_prob(ep.action[0, i])[0, hla_indices[i]]
+                        log_prob_subgoals[0, i] = dist.log_prob(ep.action[i])[0, hla_indices[i]]
                         value = value_subgoals[0, i]
                         entropy = entropy_subgoals[0, i]
 
                         # Compute loss
-                        ratio = torch.exp(log_prob_subgoals[0, i] - ep.log_prob[0, i])
-                        surr1 = ratio * ep.advantage[0, i]
-                        surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep.advantage[0, i]
+                        ratio = torch.exp(log_prob_subgoals[0, i] - ep.log_prob[i])
+                        surr1 = ratio * ep.advantage[i]
+                        surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep.advantage[i]
                         policy_loss = -torch.min(surr1, surr2).mean()
 
-                        value_clipped = ep.value[0, i] + torch.clamp(value - ep.value[0, i], -self.clip_eps, self.clip_eps)
-                        surr1 = (value - ep.returnn[0, i]).pow(2)
-                        surr2 = (value_clipped - ep.returnn[0, i]).pow(2)
+                        value_clipped = ep.value[i] + torch.clamp(value - ep.value[i], -self.clip_eps, self.clip_eps)
+                        surr1 = (value - ep.returnn[i]).pow(2)
+                        surr2 = (value_clipped - ep.returnn[i]).pow(2)
                         value_loss = torch.max(surr1, surr2).mean()
 
                         loss = policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss
@@ -832,8 +835,8 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     # Create an episode of experience
                     ep = exps[ep_id]
 
-                    model_results = self.acmodel(ep.history)
-                    hla_indices = ep.history.hla_hid_indices
+                    model_results = self.acmodel(ep.history[0])
+                    hla_indices = ep.history[0].hla_hid_indices[:-1]
                     dist = model_results['dist']
                     raw_value = model_results['value']
 

@@ -74,7 +74,8 @@ def load_skill(skill_model_name, budget_steps):
 def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
         skill_arch, skill_instr_arch, max_history_window_vlm, device,
-        lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False):
+        lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False,
+        max_lang_model_input_len=1024):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = "ppo"
@@ -111,7 +112,7 @@ def create_random_hrl_vlm_model(
 
     lang_model = GPT2LMHeadModel.from_pretrained(
         lang_model_name,
-        pad_token_id=tokenizer.pad_token_id,
+        pad_token_id = tokenizer.pad_token_id,
         sep_token_id = tokenizer.sep_token_id)
 
     lang_model_config = lang_model.config
@@ -149,6 +150,9 @@ def create_random_hrl_vlm_model(
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")
-    acmodel = FACModel(num_of_actions=num_high_level_actions, device=device, vlm=vlm, tokenizer=tokenizer, img_encoder=img_encoder)
+    acmodel = FACModel(
+        num_of_actions=num_high_level_actions, device=device,
+        vlm=vlm, tokenizer=tokenizer, img_encoder=img_encoder,
+        max_lang_model_input_len=max_lang_model_input_len,)
 
     return acmodel, model_name

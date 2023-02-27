@@ -667,7 +667,7 @@ class HRLAgent(ModelAgent):
     def __init__(
         self, model_or_name, obss_preprocessor, argmax,
         skill_library, skill_memory_size, subgoal_set,
-        use_vlm=True):
+        use_vlm=True, abstract_history=False):
 
         self.skill_library = skill_library
         self.subgoal_set = subgoal_set
@@ -689,8 +689,9 @@ class HRLAgent(ModelAgent):
         self.current_time_step = None
 
         # For the high-level policy module
+        self.abstract_history = abstract_history
         self.num_highlevel_actions = subgoal_set.num_subgoals_info['total']
-        self.history = HRLAgentHistory()
+        self.history = None
 
         # For the low-level policy module
         self.skill_memory_size = skill_memory_size
@@ -698,7 +699,6 @@ class HRLAgent(ModelAgent):
         # Reset/Initialize data members related to current skill and current subgoal to 'None'
         self.reset_subgoal_and_skill()
     
-
         # Other data members
         self.debug = False
         self.device = next(self.model.parameters()).device
@@ -712,14 +712,14 @@ class HRLAgent(ModelAgent):
             self.subgoals_token_seqs = self.model.tokenizer(
                 [subgoal[1].instr_desc+"!" for subgoal in self.subgoal_set.all_subgoals],
                 return_tensors="pt",
-                padding="max_length")
+                padding=True)
             self.subgoals_token_seqs.to(self.device)
             self.subgoals_token_lens = self.subgoals_token_seqs['attention_mask'].sum(1)
             subgoal_statuses_str = ["[InProgress]", "[Success]", "[Failure]"]
             self.subgoal_status_token_seqs = self.model.tokenizer(
                 subgoal_statuses_str,
                 return_tensors="pt",
-                padding="max_length")
+                padding=True)
             self.subgoal_status_token_seqs.to(self.device)
             self.subgoal_status_token_lens = self.subgoal_status_token_seqs['attention_mask'].sum(1)
 
@@ -733,11 +733,13 @@ class HRLAgent(ModelAgent):
         return self.goal
 
     def reset_history(self, goal, initial_obs):
+        self.history = HRLAgentHistory()
         self.history.goal = goal
         self.history.token_seqs = self.model.tokenizer(
                 self.history.goal+"|image|[start]",
                 return_tensors="pt",
-                padding="max_length")
+                padding="max_length",
+                max_length=self.model.max_lang_model_input_len)
         self.history.token_seqs.to(self.device)
         self.history.token_seq_lens = self.history.token_seqs['attention_mask'].sum(dim=1)
         self.history.hla_hid_indices = [self.history.token_seq_lens[0]-1]
@@ -781,7 +783,6 @@ class HRLAgent(ModelAgent):
     def need_new_subgoal(self):
         return self.current_time_step==0 or self.current_subgoal_status!=0
 
-
     # Accumulate envrionment information to the history immediately after the agent takes an action
     def accumulate_env_info_to_history(self, action, obs, reward, done):
         self.history.vis_obss.append(obs)
@@ -798,9 +799,9 @@ class HRLAgent(ModelAgent):
         subgoal_vis_token_seqs = self.model.tokenizer(
                 vis_obs_seq_str,
                 return_tensors="pt",
-                padding="max_length")
+                padding=True,)
         subgoal_vis_token_seqs.to(self.device)
-        subgoal_vis_token_lens = self.subgoal_status_token_seqs['attention_mask'].sum(1)
+        subgoal_vis_token_lens = subgoal_vis_token_seqs['attention_mask'].sum(1)
         start = self.history.token_seq_lens[0]
         subgoal_vis_token_len = subgoal_vis_token_lens[0]
         end = start + subgoal_vis_token_len
@@ -944,7 +945,7 @@ def load_agent(
         env,
         model_name, argmax=True,
         subgoals=None, goal=None,
-        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True,
+        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False,
         demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,):
     # env_name needs to be specified for demo agents
     if model_name == 'BOT':
@@ -954,7 +955,7 @@ def load_agent(
     elif model_name is not None:
         obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)
         if skill_library is not None:
-            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm)
+            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm, abstract_history)
         else:
             return ModelAgent(model_name, obss_preprocessor, argmax)
     elif demos_origin is not None or demos_name is not None:
