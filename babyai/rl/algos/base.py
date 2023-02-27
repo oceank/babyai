@@ -5,6 +5,7 @@ import numpy as np
 from babyai.rl.format import default_preprocess_obss
 from babyai.rl.utils import DictList, ParallelEnv
 from babyai.rl.utils.supervised_losses import ExtraInfoCollector
+from babyai.utils.agent import HRLAgentHistory
 
 from einops import rearrange
 
@@ -712,7 +713,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.num_procs = len(envs) # 1
 
-        # Initialize parameters for having the agent use subgoals 
+        # Initialize parameters for having the agent use subgoals
         self.agent = agent
 
         # Initialize experience values
@@ -768,7 +769,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
 
         self.log_total_consumed_frames = 0
         self.log_total_num_subgoals = 0
-        
+
         for ep_idx in range(self.num_episodes):
             self.obss[ep_idx] = []
             self.rewards[ep_idx] = []
@@ -828,7 +829,6 @@ class BaseAlgoFlamingoHRLIL(ABC):
 
                 self.log_episode_num_frames[ep_idx] += subgoals_consumed_steps[0]
 
-
                 # Update experiences values
                 self.obs = obs
 
@@ -878,3 +878,271 @@ class BaseAlgoFlamingoHRLIL(ABC):
         }
 
         return exps, log
+
+# use HRLAgentHistory
+class BaseAlgoFlamingoHRLv1(ABC):
+    """The base class for RL algorithms."""
+
+    def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+                 value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
+                 agent, num_episodes, generate_subgoal_desc=False):
+        """
+        Initializes a `BaseAlgoFlamingoHRLv1` instance.
+
+        Parameters:
+        ----------
+        envs : list
+            a list of environments that will be run in parallel
+        acmodel : torch.Module
+            the model
+        num_frames_per_proc : int
+            the number of frames collected by every process for an update
+        discount : float
+            the discount for future rewards
+        lr : float
+            the learning rate for optimizers
+        gae_lambda : float
+            the lambda coefficient in the GAE formula
+            ([Schulman et al., 2015](https://arxiv.org/abs/1506.02438))
+        entropy_coef : float
+            the weight of the entropy cost in the final objective
+        value_loss_coef : float
+            the weight of the value loss in the final objective
+        max_grad_norm : float
+            gradient will be clipped to be at most this value
+        recurrence : int
+            the number of steps the gradient is propagated back in time
+        preprocess_obss : function
+            a function that takes observations returned by the environment
+            and converts them into the format that the model can handle
+        reshape_reward : function
+            a function that shapes the reward, takes an
+            (observation, action, reward, done) tuple as an input
+        aux_info : list
+            a list of strings corresponding to the name of the extra information
+            retrieved from the environment for supervised auxiliary losses
+        """
+        # Store parameters
+
+        self.env = ParallelEnv(envs)
+        self.acmodel = acmodel
+        # impact batchnorm or dropout layers
+        self.acmodel.train()
+
+        self.discount = discount
+        self.lr = lr
+        self.gae_lambda = gae_lambda
+        self.entropy_coef = entropy_coef
+        self.value_loss_coef = value_loss_coef
+        self.max_grad_norm = max_grad_norm
+        self.preprocess_obss = preprocess_obss or default_preprocess_obss
+        self.reshape_reward = reshape_reward
+
+        self.num_episodes = num_episodes
+        self.generate_subgoal_desc = generate_subgoal_desc
+
+
+        # Store helpers values
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.num_procs = len(envs) # 1
+
+        # Initialize parameters for having the agent use subgoals
+        self.agent = agent
+
+        # Initialize experience values
+        #self.obs = self.env.reset()
+        #self.agent.reset_goal_and_subgoals(self.env.envs)
+        self.obs = None
+        self.histories = [None]*(self.num_episodes)
+
+        #self.obss = [None]*(self.num_episodes)
+
+        self.actions = [None]*(self.num_episodes)
+        self.values = [None]*(self.num_episodes)
+        self.rewards = [None]*(self.num_episodes)
+        self.advantages = [None]*(self.num_episodes)
+        self.log_probs = [None]*(self.num_episodes)
+
+        # Initialize log values
+        self.log_episode_return = torch.zeros(self.num_episodes, device=self.device)
+        self.log_episode_reshaped_return = torch.zeros(self.num_episodes, device=self.device)
+
+        self.log_episode_num_frames = torch.zeros(self.num_episodes, device=self.device, dtype=torch.int)
+        self.log_total_consumed_frames = 0
+        self.log_total_num_subgoals = 0
+        self.log_done_counter = 0
+        self.log_return = [0] * self.num_episodes
+        self.log_reshaped_return = [0] * self.num_episodes
+        self.log_num_frames = [0] * self.num_episodes
+        self.log_num_subgoals = [0] * self.num_episodes
+
+
+    def collect_experiences(self):
+        """Collects rollouts and computes advantages.
+
+        Runs several environments concurrently. The next actions are computed
+        in a batch mode for all environments at the same time. The rollouts
+        and advantages from all environments are concatenated together.
+
+        Returns
+        -------
+        exps : DictList
+            Contains actions, rewards, advantages etc as attributes.
+            Each attribute, e.g. `exps.reward` is a list with a length of
+            self.num_episode and each of its element is a list represents
+            the reward at a time step. Here, the time step corresponds to
+            the high-level policy in the HRL. That is, it is the time point
+            when the corresponding subgoal is done.
+            The full list of attributes is:
+                histor/obs, action, value, reward, advantage, log_prob, returnnn.
+            history:
+            *   goal: the agent's goal
+            *   token_seqs: a sqeuence of partial visual observations up to now: includeing attention masks and media_locations
+            *   vis_obss:a sequence of images represents the agent's observational history up to now,
+                including the mission goal, each subgoal's description, status, and corresponding
+                visual observations.
+            *   highlevel_actions
+            *   highlevel_timesteps
+            *   hla_hid_indices: highlevel actions' corresponding hidden state indices
+            *   subgoals_status
+            *   lowlevel_actions
+            *   rewards
+
+        logs : dict
+            Useful stats about the training process, including the average
+            reward, policy loss, value loss, etc.
+
+        """
+
+        num_envs = 1
+
+        self.log_total_consumed_frames = 0
+        self.log_total_num_subgoals = 0
+
+        for ep_idx in range(self.num_episodes):
+
+            #self.obss[ep_idx] = []
+            self.actions[ep_idx] = []
+            self.values[ep_idx] = []
+            self.rewards[ep_idx] = []
+            self.advantages[ep_idx] = []
+            self.log_probs[ep_idx] = []
+
+            # self.obs is a list of observations from multiple environments
+            # Currently only support one process. That is, self.obs only has one element, self.obs[0]
+            self.obs = self.env.reset()
+            goal = self.obs[0]['mission']
+            initial_obs = self.obs[0]
+            cur_env = self.env.envs[0]
+            self.agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
+            self.histories[ep_idx] = self.agent.history
+
+            done = [False]
+            episode_num_subgoals = 0
+            self.log_episode_num_frames[ep_idx] = 0
+            while not done[0]:
+                # Check if a subgoal is needed. If yes, generate a subgoal description.
+                if self.agent.subgoal_needed():
+                    with torch.no_grad():
+                        highlevel_action, log_prob, value = self.agent.propose_subgoal(cur_env, is_training=True)
+                        episode_num_subgoals += 1
+
+                # Apply the corresponding skill to solve the subgoal until it is done
+                while (not done[0]) and self.agent.current_subgoal_status == 0:
+                    # Pretrained Skills Are Fixed:
+                    #   no_grad() is applied inside act() such that the pretrained
+                    #   skill will not be modified during backward propagation.
+                    result = self.agent.act(self.obs[0])
+                    action = result['action'].item()
+                    obs, reward, done, _ = cur_env.step(action)
+                    # Update the current_time_step and accumulate information to the agent's history
+                    self.agent.current_time_step += 1
+                    self.agent.accumulate_env_info_to_history(action, obs, reward, done)
+                    # check if the current subgoal is done
+                    self.agent.verify_current_subgoal(action)
+                    if self.agent.current_subgoal_status != 0: # the current subgoal is done
+                        # subgoal_success = self.agent.current_subgoal_status == 1
+                        # append the subgoal status to the agent's history
+                        self.agent.update_history_with_subgoal_status()
+
+                    # Update the observation that will be used by the current/new skill
+                    self.obs = obs
+
+                # The current subgoal is done and save experiences values for the high-level policy
+                self.log_probs[ep_idx].append(log_prob)
+                self.actions[ep_idx].append(highlevel_action)
+                self.values[ep_idx].append(value)
+                ## The 'reward' is associated with the timestep when the current subgoal is done.
+                ## Reward reshaping might not be necessary for the high-level policy.
+                ## It is used when training low-level policy / predefined skill.
+                if self.reshape_reward is not None:
+                    self.rewards[ep_idx].append(
+                        torch.tensor([
+                            self.reshape_reward(obs_, action_, reward_, done_)
+                            for obs_, action_, reward_, done_ in zip(obs, action, reward, done)
+                            ], device=self.device
+                        )
+                    )
+                else:
+                    self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
+                self.advantages[ep_idx].append(0) # initialize the advantages for the episode, ep_idx
+
+            # The episode is done
+            ## Update log values
+            ### current_time_step indicates the number of steps elapsed in this episode
+            self.log_episode_num_frames[ep_idx] = self.agent.current_time_step
+            self.log_total_consumed_frames += self.log_episode_num_frames[ep_idx]
+            self.log_return[ep_idx] = reward[0] # reward from the environment
+            self.log_reshaped_return[ep_idx] = self.rewards[ep_idx] # reshaped reward
+            self.log_num_frames[ep_idx] = self.log_episode_num_frames[ep_idx]
+            self.log_num_subgoals[ep_idx] = episode_num_subgoals
+            self.log_total_num_subgoals += episode_num_subgoals
+
+            ## Add advantage and return to experiences
+            #   The mission is done after executing the last subgoal.
+            #   So, the advantage at the time point of the last subgoal is:
+            #       advantage = delta + discount * gae_lambda * 0 (next_advantage)
+            #       delta = reward - value + 0 (next_value)
+            #   (subgoal_time_step == (episode_num_subgoals - 1)): the last subgoal
+            for subgoal_time_step in reversed(range(episode_num_subgoals)):
+                is_last_subgoal = subgoal_time_step == (episode_num_subgoals - 1)
+                next_mask = 0 if is_last_subgoal else 1
+                next_value = 0 if is_last_subgoal else self.values[ep_idx][subgoal_time_step+1]
+                next_advantage = 0 if is_last_subgoal else self.advantages[ep_idx][subgoal_time_step+1]
+
+                delta = self.rewards[ep_idx][subgoal_time_step] + self.discount * next_value * next_mask - self.values[ep_idx][subgoal_time_step]
+                self.advantages[ep_idx][subgoal_time_step] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
+
+        # Flatten the data correctly, making sure that
+        # each episode's data is a continuous chunk
+
+        exps = DictList()
+
+        exps.history = self.histories
+        exps.action = self.actions
+        exps.value = self.values
+        exps.reward = self.rewards
+        exps.advantage = self.advantages
+        exps.log_prob = self.log_probs
+        exps.returnn = [
+            [value+adv for value, adv in zip(values_eps, adv_eps)]
+            for values_eps, adv_eps in zip(exps.value, exps.advantage)
+            ]
+
+        # Log some values
+
+        log = {
+            "return_per_episode": self.log_return,
+            "reshaped_return_per_episode": [[x.item() for x in y] for y in self.log_reshaped_return],
+            "num_frames_per_episode": [x.item() for x in self.log_num_frames],
+            "num_frames": self.log_total_consumed_frames.item(),
+            "episodes_done": self.num_episodes,
+            "num_high_level_actions_per_episode": self.log_num_subgoals,
+            "num_high_level_actions": self.log_total_num_subgoals
+        }
+
+        return exps, log
+
+    @abstractmethod
+    def update_parameters(self):
+        pass
