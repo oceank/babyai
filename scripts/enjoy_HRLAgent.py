@@ -241,7 +241,8 @@ def keyDownCb(event):
         if agent.current_subgoal_status != 0 and (not args.manuall_select_subgoal):
             subgoal_idx += 1
             # the current subgoal is done, so propose the next subgoal
-            agent.propose_new_subgoal(env)
+            with torch.no_grad():
+                agent.propose_new_subgoal(env)
             print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
         step += 1
 
