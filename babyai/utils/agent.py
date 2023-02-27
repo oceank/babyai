@@ -785,9 +785,9 @@ class HRLAgent(ModelAgent):
     # Accumulate envrionment information to the history immediately after the agent takes an action
     def accumulate_env_info_to_history(self, action, obs, reward, done):
         self.history.vis_obss.append(obs)
-        #self.history.lowlevel_actions.append(action)
-        #self.history.rewards.append(reward)
-        #self.history.dones.append(done)
+        self.history.lowlevel_actions.append(action)
+        self.history.rewards.append(reward)
+        self.history.dones.append(done)
 
     # Call this function when the current subgoal is done
     # Assume information given by the environment has been accumulated in the history after an action.
