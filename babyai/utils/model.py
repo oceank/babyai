@@ -73,25 +73,30 @@ def load_skill(skill_model_name, budget_steps):
 '''
 def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
-        skill_arch, instr_arch, max_history_window_vlm, device,
-        lang_model_name="distilgpt2", only_attend_immediate_media=True):
+        skill_arch, skill_instr_arch, max_history_window_vlm, device,
+        lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = "ppo"
     arch = "HRL-Flamingo"
-    instr = instr_arch
-    mem = "mem" 
+    hist = "full" # full history
+    if abstract_history:
+        hist = "abs" # abstract
+    attn = "all" # cross attend to all previous medias
+    if only_attend_immediate_media:
+        attn = "imd" # cross attend to the immediate media   
+    arch = f"{arch}_{hist}_{attn}"
+    mem = "mem"
+    skill_arch = f"{skill_arch}_{skill_instr_arch}_{mem}"
 
     model_name_parts = {
         'env': env_name,
         'algo': algo,
         'arch': arch,
         'skill_arch': skill_arch,
-        'instr': instr,
-        'mem': mem,
         'seed': seed,
         'suffix': suffix}
-    model_name = "{env}_{algo}_{arch}_SKILL_{skill_arch}_{instr}_{mem}_SEED{seed}_{suffix}".format(**model_name_parts)
+    model_name = "{env}_{algo}_{arch}_SKILL_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
