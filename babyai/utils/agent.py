@@ -683,33 +683,28 @@ class HRLAgent(ModelAgent):
                 self.model.cuda()
         else:
             self.model = model_or_name
+
+        # Currently only support training and testing with one environment instance
+        self.goal = None
+        self.current_time_step = None
+
+        # For the high-level policy module
         self.num_highlevel_actions = subgoal_set.num_subgoals_info['total']
         self.history = HRLAgentHistory()
 
-        # for the low-level policy module
+        # For the low-level policy module
         self.skill_memory_size = skill_memory_size
-        self.current_skill = None
-        self.current_subgoal = None
-        self.current_subgoal_idx = None
-        self.current_subgoal_instr = None
-        self.current_subgoal_desc  = None
-        self.current_subgoal_status = None # 0: in progress, 1: success, 2: faliure
-        self.current_subgoal_start_time = None
-        self.current_subgoal_memory = None
-        self.current_time_step = None
 
-        # other data members
+        # Reset/Initialize data members related to current skill and current subgoal to 'None'
+        self.reset_subgoal_and_skill()
+    
+
+        # Other data members
         self.debug = False
         self.device = next(self.model.parameters()).device
         self.argmax = argmax
         self.use_vlm = use_vlm
-        ## Currently only support training and testing with one environment instance
-        self.goal = None
 
-        self.subgoals_token_seqs = None
-        self.subgoals_token_lens = None
-        self.subgoal_status_token_seqs = None
-        self.subgoal_status_token_lens = None
         if self.use_vlm:
             # the model has tokenizer data member
             # subgoal[1]: an Instr instance for the subgoal
@@ -760,10 +755,27 @@ class HRLAgent(ModelAgent):
         self.history.rewards = []
         self.history.dones = []
 
+    def reset_subgoal_and_skill(self):
+        self.current_skill = None
+        self.current_subgoal = None
+        self.current_subgoal_idx = None
+        self.current_subgoal_instr = None
+        self.current_subgoal_desc  = None
+        self.current_subgoal_status = None # 0: in progress, 1: success, 2: faliure
+        self.current_subgoal_start_time = None
+        self.current_subgoal_memory = None
+
+        self.subgoals_token_seqs = None
+        self.subgoals_token_lens = None
+        self.subgoal_status_token_seqs = None
+        self.subgoal_status_token_lens = None
+
 
     def on_reset(self, env, goal, initial_obs, propose_first_subgoal=True):
-        self.reset_history(goal, initial_obs)
         self.current_time_step = 0
+        self.goal = goal
+        self.reset_subgoal_and_skill()
+        self.reset_history(goal, initial_obs)
         if propose_first_subgoal:
             # propose the first subgoal
             self.propose_new_subgoal(env)
@@ -847,28 +859,36 @@ class HRLAgent(ModelAgent):
     # * First update the history with image_embeds and media_locations, then apply the model (VLM) to get the high-level action
     # * Update self.current_subgoal, self.current_skill
     # * Append the token sequence of the new subgoal to self.token_seqs
-    def propose_new_subgoal(self, env):
-        with torch.no_grad():
-        # Update 'image_embeds' and 'media_locations'
-            self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
-            media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
-            self.history.token_seqs['media_locations'] = media_locations
+    def propose_new_subgoal(self, env, is_training=False):
 
-            model_results = self.model(self.history)
-            result_idx = self.history.hla_hid_indices[-1]
-            dist = model_results['dist']
-            #value = model_results['value'][0, result_idx]
-            #logits = model_results['logits'][0, result_idx]
+        # Update 'image_embeds' and 'media_locations'
+        self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+        self.history.token_seqs['media_locations'] = media_locations
+
+        model_results = self.model(self.history)
+        result_idx = self.history.hla_hid_indices[-1]
+        dist = model_results['dist']
+        #logits = model_results['logits'][0, result_idx]
 
         if self.argmax:
             action = dist.probs.argmax(1)
         else:
             action = dist.sample()
-        highlevel_action = action[0, result_idx].item()
+        # shape of 'action': (b=1, max_lang_model_input_len)
+        highlevel_action = action[0, result_idx]
 
         self.setup_new_subgoal_and_skill(env, highlevel_action)
 
+        if is_training:
+            raw_log_probs = dist.log_prob(action)
+            log_prob = raw_log_probs[0, result_idx]
+            value = model_results['value'][0, result_idx]
+            return highlevel_action, log_prob, value
+
     def setup_new_subgoal_and_skill(self, env, highlevel_action):
+        # Currently only support one env
+        highlevel_action = highlevel_action.item()
         # update the current subgoal and skill
         self.current_subgoal = self.subgoal_set.all_subgoals[highlevel_action]
         self.current_subgoal_idx = self.current_subgoal[0]
