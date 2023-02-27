@@ -894,12 +894,13 @@ class FACModel(nn.Module, babyai.rl.ACModel):
         self.max_desc_len = max_desc_len # the maximum length of tokens for a generated sentence at one time step
         self.max_lang_model_input_len = max_lang_model_input_len # the maximum length of tokens the language model and tokenizer can handel
 
+        self.num_of_actions = num_of_actions
 
         # Define actor's model
         self.actor = nn.Sequential(
             nn.Linear(self.embedding_size, 64),
             nn.Tanh(),
-            nn.Linear(64, num_of_actions)
+            nn.Linear(64, self.num_of_actions)
         )
 
         # Define critic's model
