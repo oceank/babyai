@@ -667,7 +667,7 @@ class HRLAgent(ModelAgent):
     def __init__(
         self, model_or_name, obss_preprocessor, argmax,
         skill_library, skill_memory_size, subgoal_set,
-        use_vlm=True, abstract_history=False):
+        use_vlm=True, abstract_history=False, only_attend_immediate_media=True):
 
         self.skill_library = skill_library
         self.subgoal_set = subgoal_set
@@ -690,6 +690,7 @@ class HRLAgent(ModelAgent):
 
         # For the high-level policy module
         self.abstract_history = abstract_history
+        self.only_attend_immediate_media = only_attend_immediate_media
         self.num_highlevel_actions = subgoal_set.num_subgoals_info['total']
         self.history = None
 
@@ -858,10 +859,16 @@ class HRLAgent(ModelAgent):
 
         # Update 'image_embeds' and 'media_locations'
         self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
-        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
+            self.history.token_seqs, device=self.device, only_media_locations=self.only_attend_immediate_media)
         self.history.token_seqs['media_locations'] = media_locations
 
         model_results = self.model(self.history)
+
+        # Clear 'image_embeds' and 'media_locations' in GPU to save memory
+        self.history.token_seqs['image_embeds'] = None
+        self.history.token_seqs['media_locations'] = None
+
         result_idx = self.history.hla_hid_indices[-1]
         dist = model_results['dist']
         #logits = model_results['logits'][0, result_idx]
@@ -945,7 +952,7 @@ def load_agent(
         env,
         model_name, argmax=True,
         subgoals=None, goal=None,
-        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False,
+        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False, only_attend_immediate_media=True,
         demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,):
     # env_name needs to be specified for demo agents
     if model_name == 'BOT':
@@ -955,7 +962,7 @@ def load_agent(
     elif model_name is not None:
         obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)
         if skill_library is not None:
-            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm, abstract_history)
+            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm, abstract_history, only_attend_immediate_media)
         else:
             return ModelAgent(model_name, obss_preprocessor, argmax)
     elif demos_origin is not None or demos_name is not None:

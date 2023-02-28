@@ -183,7 +183,8 @@ print(f"===>    Initializing the HRL agent")
 train_agent = utils.load_agent(
         env=envs[0], model_name=args.model, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
-        subgoal_set=subgoal_set, use_vlm=True, abstract_history=args.abstract_history,)
+        subgoal_set=subgoal_set, use_vlm=True,
+        abstract_history=args.abstract_history, only_attend_immediate_media=args.only_attend_immediate_media)
 
 # Define actor-critic algo
 print(f"===>    Initializing the actor-critic algorithm")

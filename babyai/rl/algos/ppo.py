@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 from babyai.rl.algos.base import BaseAlgo, BaseAlgoFlamingoHRL, BaseAlgoFlamingoHRLIL, BaseAlgoFlamingoHRLv1
-
+from babyai import utils
 
 class PPOAlgo(BaseAlgo):
     """The class for the Proximal Policy Optimization algorithm
@@ -694,7 +694,13 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     entropy_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
                     log_prob_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
 
+                    # Update 'image_embeds' and 'media_locations'
+                    ep.history[0].token_seqs['image_embeds'] = self.acmodel.img_encoder([ep.history[0].vis_obss])
+                    media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
+                        ep.history[0].token_seqs, device=self.device, only_media_locations=self.agent.only_attend_immediate_media)
+                    ep.history[0].token_seqs['media_locations'] = media_locations
                     model_results = self.acmodel(ep.history[0])
+
                     # The last subgoal is suggested based on the embedding of the hidden state
                     # at the index, hla_hid_indices[-2], since the history here recorders the
                     # entire history of the episode and thus hla_hid_indices[-1] is not used.
@@ -750,8 +756,13 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
-                # Update log values
+                # Clear 'image_embeds' and 'media_locations' in GPU to save memory
+                for ep_idx in episode_ids[batch_start:batch_after_end]:
+                    ep = exps[ep_idx]
+                    ep.history[0].token_seqs['image_embeds'] = None
+                    ep.history[0].token_seqs['media_locations'] = None
 
+                # Update log values
                 log_entropies.append(batch_entropy)
                 log_values.append(batch_value)
                 log_policy_losses.append(batch_policy_loss)
@@ -760,7 +771,6 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 log_losses.append(batch_loss.item())
 
             # Log some values
-
             logs["entropy"] = numpy.mean(log_entropies)
             logs["value"] = numpy.mean(log_values)
             logs["policy_loss"] = numpy.mean(log_policy_losses)
