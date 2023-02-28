@@ -858,13 +858,12 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     entropy_subgoals[idx, :num_of_subgoals] = raw_entropy[range(num_envs), hla_indices]
                     log_prob_subgoals[idx, :num_of_subgoals] = raw_log_prob[range(num_of_subgoals), hla_indices]
 
-                    # FIXME:
-                    #   advantage and returnn are list of 1-D tensors
-                    #   log_prob, action and value are 0-D tensors
+                    # Note:
+                    # In each experience, log_prob, action, value, advantage and returnn are list of 0-D tensors
                     ep_log_prob[idx, :num_of_subgoals] = torch.stack(ep.log_prob, dim=0)
-                    ep_advantage[idx, :num_of_subgoals] = torch.cat(ep.advantage, dim=0)
+                    ep_advantage[idx, :num_of_subgoals] = torch.stack(ep.advantage, dim=0)
                     ep_value[idx, :num_of_subgoals] = torch.stack(ep.value, dim=0)
-                    ep_returnn[idx, :num_of_subgoals] = torch.cat(ep.returnn, dim=0)
+                    ep_returnn[idx, :num_of_subgoals] = torch.stack(ep.returnn, dim=0)
 
                 ratio = torch.exp(log_prob_subgoals - ep_log_prob)
                 surr1 = ratio * ep_advantage
@@ -878,7 +877,10 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
 
                 loss = policy_loss - self.entropy_coef * entropy_subgoals + self.value_loss_coef * value_loss
                 loss = loss*subgoal_weight*subgoal_mask
-                loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean()
+                if self.episode_weight_type==0:
+                    loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean()
+                else: # ==1. average the loss of each subgoal across an episode has been applied in subgoal_weight
+                    loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).sum()
 
                 # Update batch values
 

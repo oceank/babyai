@@ -1078,11 +1078,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
                 ## It is used when training low-level policy / predefined skill.
                 if self.reshape_reward is not None:
                     self.rewards[ep_idx].append(
-                        torch.tensor([
-                            self.reshape_reward(obs_, action_, reward_, done_)
-                            for obs_, action_, reward_, done_ in zip([obs], [action], [reward], [done])
-                            ], device=self.device
-                        )
+                        torch.tensor(self.reshape_reward(obs, action, reward, done), device=self.device)
                     )
                 else:
                     self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
