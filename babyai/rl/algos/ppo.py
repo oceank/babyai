@@ -851,16 +851,19 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     raw_value = model_results['value']
 
                     raw_entropy = dist.entropy()
-                    raw_log_prob = dist.log_prob(torch.cat(ep.action, dim=0).unsqueeze(dim=1))
+                    raw_log_prob = dist.log_prob(torch.stack(ep.action, dim=0).unsqueeze(dim=1))
 
                     # currently support one process/one environment
                     value_subgoals[idx, :num_of_subgoals] = raw_value[range(num_envs), hla_indices]
                     entropy_subgoals[idx, :num_of_subgoals] = raw_entropy[range(num_envs), hla_indices]
                     log_prob_subgoals[idx, :num_of_subgoals] = raw_log_prob[range(num_of_subgoals), hla_indices]
 
-                    ep_log_prob[idx, :num_of_subgoals] = torch.cat(ep.log_prob, dim=0)
+                    # FIXME:
+                    #   advantage and returnn are list of 1-D tensors
+                    #   log_prob, action and value are 0-D tensors
+                    ep_log_prob[idx, :num_of_subgoals] = torch.stack(ep.log_prob, dim=0)
                     ep_advantage[idx, :num_of_subgoals] = torch.cat(ep.advantage, dim=0)
-                    ep_value[idx, :num_of_subgoals] = torch.cat(ep.value, dim=0)
+                    ep_value[idx, :num_of_subgoals] = torch.stack(ep.value, dim=0)
                     ep_returnn[idx, :num_of_subgoals] = torch.cat(ep.returnn, dim=0)
 
                 ratio = torch.exp(log_prob_subgoals - ep_log_prob)
