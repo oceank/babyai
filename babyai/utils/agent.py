@@ -859,8 +859,9 @@ class HRLAgent(ModelAgent):
 
         # Update 'image_embeds' and 'media_locations'
         self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+        # only_media_locations=True: only calculate media_locations
         media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
-            self.history.token_seqs, device=self.device, only_media_locations=self.only_attend_immediate_media)
+            self.history.token_seqs, device=self.device, only_media_locations=True)
         self.history.token_seqs['media_locations'] = media_locations
 
         model_results = self.model(self.history)
