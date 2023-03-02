@@ -113,17 +113,20 @@ class LowlevelInstrSet:
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
-                if obj_type == 'door':
+                if obj_type == 'door' and color in COLOR_NAMES[:3]:
                     subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
                     subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
                 else:
-                    subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
-                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
-                    if obj_type == 'box':
-                        subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
+                    pass
+                    #subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
+                    #subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
+                    #if obj_type == 'box':
+                    #    subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
-                subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
-                subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
+                if obj_type == 'ball':
+                    subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                #subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                #subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
 
         subgoals = []
         subgoal_idx = 0
