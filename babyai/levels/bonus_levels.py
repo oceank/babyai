@@ -1803,6 +1803,44 @@ class Level_PutNextLocalR3(Level_ActionObjDoorR3):
         )
 
 ### Three-Subgoal Task Group
+class Level_OpenGoToBallR3(Level_ActionObjDoorR3):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        target_room_i = self._rand_elem([0, 2])
+        target_ball_color = self._rand_elem(COLOR_NAMES)
+        target_ball, pos = self.add_object(i=target_room_i, j=0, kind='ball', color=target_ball_color)
+
+        target_room_objs = self.add_distractors(i=target_room_i, j=0, num_distractors=self.num_distractors)
+        target_obj = target_ball
+
+        # Do not put the target object and boxes in the starting room
+        # This level aims to teach the agent to explore a new room when the starting room is fully explored
+        # The exploration of boxes in the starting room is excluded to control the complexity of the level
+        exclude_objs = [(target_obj.type, target_obj.color)]
+        for color in COLOR_NAMES:
+            exclude_objs.append(('box', color))
+        objs = self.add_distractors(i=1, j=0, num_distractors=self.num_distractors, exclude_objs=exclude_objs)
+        for _ in range(self.num_doors):
+            door_color=self._rand_elem(COLOR_NAMES[:3])
+            door, _ = self.add_door(i=1, j=0, locked=self.door_locked, color=door_color)
+            objs.append(door)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
 class Level_OpenGoToR3(Level_ActionObjDoorR3):
     '''
     Doors are closed.
