@@ -891,7 +891,8 @@ class HRLAgent(ModelAgent):
 
     def setup_new_subgoal_and_skill(self, env, highlevel_action):
         # Currently only support one env
-        highlevel_action = highlevel_action.item()
+        if isinstance(highlevel_action, torch.Tensor):
+            highlevel_action = highlevel_action.item()
         # update the current subgoal and skill
         self.current_subgoal = self.subgoal_set.all_subgoals[highlevel_action]
         self.current_subgoal_idx = self.current_subgoal[0]
@@ -931,11 +932,13 @@ class HRLAgent(ModelAgent):
             value = result['value']
             self.current_subgoal_memory = result['memory']
 
+        action = dist.probs.argmax(1)
+        '''
         if self.argmax:
             action = dist.probs.argmax(1)
         else:
             action = dist.sample()
-
+        '''
         return {'action': action,
                 'dist': dist,
                 'value': value}
