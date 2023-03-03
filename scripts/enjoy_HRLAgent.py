@@ -99,7 +99,8 @@ if args.model is None:
     num_high_level_actions = subgoal_set.num_subgoals_info['total']
     acmodel, args.model = create_random_hrl_vlm_model(
         args.env, args.seed, num_high_level_actions,
-        args.skill_arch, args.instr_arch, args.max_history_window_vlm, device)
+        args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
+        abstract_history=False, only_attend_immediate_media=False)
 
     path = utils.model.get_model_path(args.model)
     utils.create_folders_if_necessary(path)
