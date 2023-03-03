@@ -164,7 +164,7 @@ class LowlevelInstrSet:
             return self.subgol_set_for_all()
         elif subgoal_set_type=="subgoal_set_for_PutNextLocalBallBox":
             return self.subgoal_set_for_PutNextLocalBallBox()
-        elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal2Boxes":
+        elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal2BoxesR3":
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes()
         elif subgoal_set_type=="subgoal_set_for_UnblockPickupR3":
             return self.subgol_set_for_UnblockPickup()
