@@ -79,6 +79,8 @@ parser.add_argument("--sample-next-token", action="store_true", default=False,
                     help="Get the next token by sampling the predicted probability distribution over the vocabulary (default: True)")
 '''
 # Skill Library
+parser.add_argument("--subgoal-set-type", type=str, default="subgoal_set_for_all",
+                    help="a name indicates a list of subgoals")
 parser.add_argument("--skill-names-file", type=str, default="skill_model_names.txt",
                     help="File containing the names of the skills to be used for the mission")
 parser.add_argument("--skill-instr-arch", default="gru",
@@ -143,7 +145,7 @@ for skill_desc in skill_library:
     print(skill_desc)
 # Initialize subgoal set
 print(f"===>    Initializing the predefined subgoal set")
-subgoal_set = LowlevelInstrSet()
+subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
 subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
 subgoal_set.display_all_subgoals()
 
