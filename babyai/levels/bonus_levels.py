@@ -1802,7 +1802,7 @@ class Level_PutNextLocalR3(Level_ActionObjDoorR3):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
-class Level_PutNextLocalBallBox1R3(Level_ActionObjDoorR3):
+class Level_PutNextLocalBallBoxOneR3(Level_ActionObjDoorR3):
     '''
     The obj to pick and obj to drop_next_to are in the same room where the agent starts the mission
     Doors are open.
@@ -1844,7 +1844,7 @@ class Level_PutNextLocalBallBox1R3(Level_ActionObjDoorR3):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
-class Level_PutNextLocalBallBox2R3(Level_ActionObjDoorR3):
+class Level_PutNextLocalBallBoxTwoR3(Level_ActionObjDoorR3):
     '''
     The obj to pick up is inside a box
     The obj to put_next_to is not inside a box
@@ -1896,7 +1896,7 @@ class Level_PutNextLocalBallBox2R3(Level_ActionObjDoorR3):
         )
 
 
-class Level_PutNextLocalBallBox3R3(Level_ActionObjDoorR3):
+class Level_PutNextLocalBallBoxThreeR3(Level_ActionObjDoorR3):
     '''
     The obj to pick up is not inside a box
     The obj to put_next_to is inside a box
@@ -1947,7 +1947,7 @@ class Level_PutNextLocalBallBox3R3(Level_ActionObjDoorR3):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
-class Level_PutNextLocalBallBox4R3(Level_ActionObjDoorR3):
+class Level_PutNextLocalBallBoxFourR3(Level_ActionObjDoorR3):
     '''
     The obj to pick up is inside a box
     The obj to put_next_to is inside a box
