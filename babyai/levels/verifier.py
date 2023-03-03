@@ -166,7 +166,7 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_PutNextLocalBallBox()
         elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal2Boxes":
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes()
-        elif subgoal_set_type=="subgoal_set_for_UnblockPickup":
+        elif subgoal_set_type=="subgoal_set_for_UnblockPickupR3":
             return self.subgol_set_for_UnblockPickup()
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
