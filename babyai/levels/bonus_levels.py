@@ -1802,6 +1802,220 @@ class Level_PutNextLocalR3(Level_ActionObjDoorR3):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
+class Level_PutNextLocalBallBoxR3v1(Level_ActionObjDoorR3):
+    '''
+    The obj to pick and obj to drop_next_to are in the same room where the agent starts the mission
+    Doors are open.
+    There four balls in the agent's starting room. Each ball has different color.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        objs = []
+        for ball_color in COLOR_NAMES[2:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=ball_color)
+            objs.append(ball)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        for door_color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+class Level_PutNextLocalBallBoxR3v2(Level_ActionObjDoorR3):
+    '''
+    The obj to pick up is inside a box
+    The obj to put_next_to is not inside a box
+    There four balls in the agent's starting room. Each ball has different color and one may hide in a box.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+        target_box = self._rand_elem(boxes)
+
+        objs = [] # balls
+        for ball_color in COLOR_NAMES[2:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=ball_color)
+            objs.append(ball)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        hidden_obj = obj_to_move
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        for door_color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+
+class Level_PutNextLocalBallBoxR3v3(Level_ActionObjDoorR3):
+    '''
+    The obj to pick up is not inside a box
+    The obj to put_next_to is inside a box
+    There four balls in the agent's starting room. Each ball has different color and one may hide in a box.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+        target_box = self._rand_elem(boxes)
+
+        objs = [] # balls
+        for ball_color in COLOR_NAMES[2:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=ball_color)
+            objs.append(ball)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        hidden_obj = obj_fixed
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        for door_color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+class Level_PutNextLocalBallBoxR3v4(Level_ActionObjDoorR3):
+    '''
+    The obj to pick up is inside a box
+    The obj to put_next_to is inside a box
+    There four balls in the agent's starting room. Each ball has different color and two may hide in a box.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+
+        objs = [] # balls
+        for ball_color in COLOR_NAMES[2:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=ball_color)
+            objs.append(ball)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        hidden_obj1 = obj_fixed
+        self.grid.set(*hidden_obj1.cur_pos, None)
+        hidden_obj1.cur_pos = None
+        hidden_obj1.init_pos = None
+        boxes[0].contains = hidden_obj1
+
+        hidden_obj2 = obj_to_move
+        self.grid.set(*hidden_obj2.cur_pos, None)
+        hidden_obj2.cur_pos = None
+        hidden_obj2.init_pos = None
+        boxes[1].contains = hidden_obj2
+
+        for door_color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+'''
+The obj to pick and obj to drop_next_to are in the same room where the agent starts the mission
+    zero DoorPass
+The obj to pick is in the agent's starting room and obj to drop_next_to is in another room.
+    one DoorPass
+The obj to pick is in another room and obj to drop_next_to is in the agent's starting room.
+    two DoorPass
+The obj to pick and obj to drop_next_to are in the same room which is not the agent's starting room.
+    One DoorPass
+The obj to pick and obj to drop_next_to scatter in the two different rooms, either of which is not the agent's starting room.
+    Three DoorPass
+'''
+
 ### Three-Subgoal Task Group
 class Level_OpenGoToBallR3(Level_ActionObjDoorR3):
     '''

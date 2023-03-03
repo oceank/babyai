@@ -135,6 +135,8 @@ with open(skill_model_names_fp, 'r') as f:
         skill = utils.load_skill(skill_model_name, args.skill_budget_steps)
         skill['model'].to(device)
         skill_library[skill['description']] = skill
+        if skill['description'] == "DropNextTo":
+            skill['budget_steps'] *= 1.5 # DropNextTo is not good as Pickup and OpenBox, thus give its more budget steps
     # assume all skills use the same memory size for their LSTM componenet
     skill_memory_size = skill['model'].memory_size
 for skill_desc in skill_library:

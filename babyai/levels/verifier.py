@@ -113,9 +113,10 @@ class LowlevelInstrSet:
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
-                if obj_type == 'door' and color in COLOR_NAMES[:3]:
-                    subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
-                    subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
+                if obj_type == 'door' and color in COLOR_NAMES[:2]:
+                    pass
+                    #subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
+                    #subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
                 else:
                     pass
                     #subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
@@ -123,8 +124,11 @@ class LowlevelInstrSet:
                     #if obj_type == 'box':
                     #    subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
-                if obj_type == 'ball':
-                    subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                if obj_type == "box" and color in COLOR_NAMES[:2]:
+                    subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
+                if obj_type == 'ball' and color in COLOR_NAMES[2:]:
+                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
+                    subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
                 #subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
                 #subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
 
@@ -905,11 +909,13 @@ class PutNextInstr(ActionInstr):
         """
 
         for obj_a in self.desc_move.obj_set:
-            pos_a = obj_a.cur_pos
+            # an obj in the obj_set has cur_poss of None indicates it hides in a box
+            if obj_a.cur_pos is not None:
+                pos_a = obj_a.cur_pos
 
-            for pos_b in self.desc_fixed.obj_poss:
-                if pos_next_to(pos_a, pos_b):
-                    return True
+                for pos_b in self.desc_fixed.obj_poss:
+                    if pos_next_to(pos_a, pos_b):
+                        return True
         return False
 
     def verify_action(self, action):
