@@ -40,6 +40,8 @@ parser.add_argument("--max-history-window-vlm", type=int, default=16,
                     help="maximum number of observations that can be hosted in the history for VLM (default: 16)")
 parser.add_argument("--skill-names-file", type=str, default="skill_model_names.txt",
                     help="File containing the names of the skills to be used for the mission")
+parser.add_argument("--subgoal-set-type", type=str, default="subgoal_set_for_all",
+                    help="a name indicates a list of subgoals")
 parser.add_argument("--instr-arch", default="gru",
                     help="arch to encode instructions, possible values: gru, bigru, conv, bow (default: gru)")
 parser.add_argument("--skill-arch", default='bow_endpool_res',
@@ -90,7 +92,7 @@ with open(skill_model_names_fp, 'r') as f:
 for skill_desc in skill_library:
     print(skill_desc)
 # Initialize subgoal set
-subgoal_set = LowlevelInstrSet()
+subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
 subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
 subgoal_set.display_all_subgoals()
 

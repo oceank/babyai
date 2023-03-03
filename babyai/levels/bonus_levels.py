@@ -1802,6 +1802,45 @@ class Level_PutNextLocalR3(Level_ActionObjDoorR3):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
+class Level_OpenBoxPickupLocal2BoxesR3(Level_ActionObjDoorR3):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        for door_color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+
+        target_box = self._rand_elem(boxes)
+
+        objs = []
+        for color in COLOR_NAMES[4:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=color)
+            objs.append(ball)
+            key, pos = self.add_object(i=1, j=0, kind="key", color=color)
+            objs.append(key)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
 class Level_PutNextLocalBallBoxOneR3(Level_ActionObjDoorR3):
     '''
     The obj to pick and obj to drop_next_to are in the same room where the agent starts the mission
@@ -2128,6 +2167,67 @@ class Level_UnlockGoToR3(Level_ActionObjDoorR3):
 
         desc = ObjDesc(target_obj.type, target_obj.color)
         self.instrs = GoToInstr(desc)
+
+class Level_UnblockPickupR3(Level_ActionObjDoorR3):
+    # The doos is closed but not locked
+    # The door is blocked by a key, box or ball
+
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        # doors are open
+        for color in COLOR_NAMES[:2]:
+            door, _ = self.add_door(i=1, j=0, is_open=True, locked=self.door_locked, color=color)
+
+        target_room_i = self._rand_elem([0, 2])
+        target_room = self.get_room(target_room_i, 0)
+        # The following approach for retrieving the target door is excludsive to this level
+        target_door_idx = target_room_i # respective to the target room not the starting room
+        blocked_obj = target_room.doors[target_door_idx]
+        blocked_obj_i, blocked_obj_j = blocked_obj.cur_pos
+
+        # add two keys, two boxes and two balls
+        key_colors = COLOR_NAMES[:2]
+        box_colors = COLOR_NAMES[2:4]
+        ball_colors = COLOR_NAMES[4:]
+        colors = {"key":key_colors, "box":box_colors, "ball":ball_colors}
+        objs_typecolor = []
+        for obj_type in ["ball", "box", "key"]:
+            for obj_color in colors[obj_type]:
+                objs_typecolor.append((obj_type, obj_color))
+        objs_start_room = self._rand_subset(objs_typecolor, 3)
+        objs_another_room = [obj for obj in objs_typecolor if obj not in objs_start_room]
+
+        # Place the blocker
+        blocker = self._rand_elem(objs_start_room)
+        objs_start_room_wo_blocker = [obj for obj in objs_start_room if obj != blocker]
+        blocker = WorldObj.decode(OBJECT_TO_IDX[blocker[0]], COLOR_TO_IDX[blocker[1]], 0)
+        if target_room_i == 2: # the door connects to the room on the right
+            blocker_i = blocked_obj_i - 1
+        else: # target_room_i == 0, the door connects to the room on the left
+            blocker_i = blocked_obj_i + 1
+        blocker_pos = (blocker_i, blocked_obj_j)
+        self.grid.set(*blocker_pos, blocker)
+        blocker.init_pos = blocker_pos
+        blocker.cur_pos = blocker_pos
+
+        # Add the rest objects
+        for obj in objs_start_room_wo_blocker:
+            _, _ = self.add_object(i=1, j=0, kind=obj[0], color=obj[1])
+        for obj in objs_another_room:
+            _, _ = self.add_object(i=target_room_i, j=0, kind=obj[0], color=obj[1])
+
+        # obj to pick up
+        obj_to_pickup = self._rand_elem(objs_another_room)
+
+        self.place_agent(i=1, j=0)
+
+        desc = ObjDesc(obj_to_pickup[0], obj_to_pickup[1])
+        self.instrs = PickupInstr(desc)
 
 class Level_UnblockGoToDoorLocalR3(Level_ActionObjDoorR3):
     # The doos is closed but not locked
