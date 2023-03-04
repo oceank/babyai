@@ -36,11 +36,18 @@ def load_model(model_name, raise_not_found=True):
 def save_model(model, model_name):
     path = get_model_path(model_name)
     utils.create_folders_if_necessary(path)
-    if model.use_vlm: # Do not save the history to the model file
-        history = model.history
-        model.history = []
-        torch.save(model, path)
-        model.history = history
+    if hasattr(model, 'use_vlm') and hasattr(model, 'history'):
+        # The vlm (Flamingo) is used to describe the current state
+        # based on the current partial observation and the history
+        # using the Flamingo architecture. model.history intends to 
+        # store the agent's history during an episode, which is not
+        # a part of the model (Flamingo-based Actor-Critic Model).
+        # So, do not save model.history to file.
+        if model.use_vlm:
+            history = model.history
+            model.history = []
+            torch.save(model, path)
+            model.history = history
     else:
         torch.save(model, path)
 
