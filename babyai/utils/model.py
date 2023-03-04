@@ -15,12 +15,12 @@ def get_model_dir(model_name):
     return os.path.join(utils.storage_dir(), "models", model_name)
 
 
-def get_model_path(model_name):
-    return os.path.join(get_model_dir(model_name), "model.pt")
+def get_model_path(model_name, model_version="recent"):
+    return os.path.join(get_model_dir(model_name), f"model_{model_version}.pt")
 
 
-def load_model(model_name, raise_not_found=True):
-    path = get_model_path(model_name)
+def load_model(model_name, raise_not_found=True, model_version="recent"):
+    path = get_model_path(model_name, model_version)
     try:
         if torch.cuda.is_available():
             model = torch.load(path)
@@ -33,8 +33,8 @@ def load_model(model_name, raise_not_found=True):
             raise FileNotFoundError("No model found at {}".format(path))
 
 
-def save_model(model, model_name):
-    path = get_model_path(model_name)
+def save_model(model, model_name, model_version="recent"):
+    path = get_model_path(model_name, model_version)
     utils.create_folders_if_necessary(path)
     if hasattr(model, 'use_vlm') and hasattr(model, 'history'):
         # The vlm (Flamingo) is used to describe the current state
