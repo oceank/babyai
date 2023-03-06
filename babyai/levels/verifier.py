@@ -56,7 +56,7 @@ class LowlevelInstrSet:
         for skill_desc in SKILL_DESCRIPTIONS:
             self.num_subgoals_info[skill_desc] = 0
 
-        self.all_subgoals = self.generate_all_subgoals(subgoal_set_type=subgoal_set_type)
+        self.all_subgoals = self.generate_all_subgoals(subgoal_set_type=self.subgoal_set_type)
         self.initial_valid_subgoals = []
         self.current_valid_subgoals = []
 
@@ -201,7 +201,7 @@ class LowlevelInstrSet:
         for skill_desc in SKILL_DESCRIPTIONS:
             self.num_subgoals_info[skill_desc] = len(subgoal_instructions_by_skill[skill_desc])
             for subgoal_instr in subgoal_instructions_by_skill[skill_desc]:
-                self.generate_instr_desc(subgoal_instr, acticle='a')
+                self.generate_instr_desc(subgoal_instr, acticle='the')
                 # subgoal: 0-subgoal_idx, 1-subgoal_instr, 2-skill_desc
                 subgoals.append((subgoal_idx, subgoal_instr, skill_desc))
                 subgoal_idx += 1
@@ -262,7 +262,7 @@ class LowlevelInstrSet:
         Check if any valid low-level instructions are completed after performing the 'action'
         """
         completed_subgoals = []
-        for subgoal_idx, subgoal_instr in self.current_valid_subgoals:
+        for subgoal_idx, subgoal_instr, skill_desc in self.current_valid_subgoals:
             result = subgoal_instr.verify(action)
             if result == 'success':
                 completed_subgoals.append(subgoal_idx)
@@ -670,7 +670,7 @@ class PassInstr(ActionInstr):
         self.insideDoor = False
         # It is used to track the agent' direction relative
         # to the door when it is inside the door. 
-        # Starts to count when seld.insideDoor becomes True
+        # Starts to count when self.insideDoor becomes True
         # Default value is 0.
         # self.rotateTimes%4 = 
         #   0  : the agent faces the new room
@@ -694,6 +694,12 @@ class PassInstr(ActionInstr):
 
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
+
+        # When the agent faces the target door when reseting the instr
+        # Currently, it is assumed that there is only one matching obj
+        for door_pos in self.desc.obj_poss:
+            if tuple(self.env.front_pos.tolist()) == door_pos:
+                self.doorApproached = self.env.grid.get(*self.env.front_pos)
 
     def verify_action(self, action):
 
