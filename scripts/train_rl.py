@@ -476,6 +476,7 @@ while status['num_frames'] < args.frames:
     # Save obss preprocessor vocabulary and model
 
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
+        # save the recent model and vocabulary
         obss_preprocessor.vocab.save()
         with open(status_path, 'w') as dst:
             json.dump(status, dst)
@@ -520,8 +521,9 @@ while status['num_frames'] < args.frames:
             best_mean_return = mean_return
             save_model = True
         if save_model:
-            utils.save_model(acmodel, args.model + '_best')
-            obss_preprocessor.vocab.save(utils.get_vocab_path(args.model + '_best'))
+            # save the best model and corresponding vocabulary up to now
+            utils.save_model(acmodel, args.model, 'best')
+            obss_preprocessor.vocab.save(utils.get_vocab_path(args.model, 'best'))
             logger.info("Return {: .2f}; best model is saved".format(mean_return))
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))

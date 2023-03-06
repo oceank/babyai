@@ -171,8 +171,9 @@ model_init_path = os.path.join(model_dir, "model_init.pt")
 model_best_path = os.path.join(model_dir, "model_best.pt")
 model_curr_path = os.path.join(model_dir, "model_curr.pt")
 if args.save_initial_model:
-    torch.save(acmodel, model_init_path)
-torch.save(acmodel, os.path.join(model_dir, "model.pt"))
+    utils.save_model(acmodel, args.model, "init")
+# Start to save the 'recent version' of model
+utils.save_model(acmodel, args.model, "recent")
 
 utils.configure_logging(args.model)
 logger = logging.getLogger(__name__)

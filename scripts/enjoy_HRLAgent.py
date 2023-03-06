@@ -103,10 +103,7 @@ if args.model is None:
         args.env, args.seed, num_high_level_actions,
         args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
         abstract_history=False, only_attend_immediate_media=False)
-
-    path = utils.model.get_model_path(args.model)
-    utils.create_folders_if_necessary(path)
-    torch.save(acmodel, path)
+    utils.save_model(acmodel, args.model)
 
 max_num_episodes = 100
 subgoal_idx = 0

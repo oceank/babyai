@@ -677,6 +677,9 @@ class HRLAgent(ModelAgent):
             assert isinstance(model_or_name, str)
             obss_preprocessor = utils.ObssPreprocessor(model_or_name)
         self.obss_preprocessor = obss_preprocessor
+        # 1: Load the 'recent' version of model from model name
+        # 2: Load the 'best' versin of model from model
+        # ToDo: add a model_version as a parameter to the constructor
         if isinstance(model_or_name, str):
             self.model = utils.load_model(model_or_name)
             if torch.cuda.is_available():

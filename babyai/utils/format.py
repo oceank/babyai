@@ -8,13 +8,13 @@ import babyai.rl
 from .. import utils
 
 
-def get_vocab_path(model_name):
-    return os.path.join(utils.get_model_dir(model_name), "vocab.json")
+def get_vocab_path(model_name, model_version="recent"):
+    return os.path.join(utils.get_model_dir(model_name), f"vocab_{model_version}.json")
 
 
 class Vocabulary:
-    def __init__(self, model_name):
-        self.path = get_vocab_path(model_name)
+    def __init__(self, model_name, model_version="recent"):
+        self.path = get_vocab_path(model_name, model_version)
         self.max_size = 100
         if os.path.exists(self.path):
             self.vocab = json.load(open(self.path))
