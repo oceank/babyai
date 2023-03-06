@@ -60,11 +60,11 @@ def retrieve_skill_description(skill_model_name):
     raise ValueError(err_msg)
     
     
-def load_skill(skill_model_name, budget_steps):
+def load_skill(skill_model_name, budget_steps, model_version):
     skill = {}
 
     skill['model_name'] = skill_model_name
-    skill['model'] = load_model(skill['model_name'])
+    skill['model'] = load_model(skill['model_name'], model_version=model_version)
 
     # load the learned vocab of the skill and use it to tokenize the subgoal
     skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])

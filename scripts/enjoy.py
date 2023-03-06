@@ -96,8 +96,14 @@ if use_subgoals:
 
 
 # Define agent
+model_version='best'
 check_subgoal_completion = False #True # temporary; set it as an input argument to the script
-agent = utils.load_agent(env, args.model, args.demos, args.demos_origin, args.argmax, args.env, subgoals, goal, check_subgoal_completion)
+agent = utils.load_agent(
+    env, args.model, argmax=args.argmax,
+    subgoals=subgoals, goal=goal,
+    demos_name=args.demos, demos_origin=args.demos_origin, env_name=args.env,
+    check_subgoal_completion=check_subgoal_completion,
+    model_version=model_version)
 if args.demos is not None:
     max_num_episodes = len(agent.demos)
 # Run the agent
@@ -161,7 +167,7 @@ def keyDownCb(event):
                 return
             else:
                 result = agent.act(obs)
-                action = result['action']
+                action = result['action'].item()
                 if check_subgoal_completion: # temporary; for demo agent
                     expected_completed_subgoals = result['completed_subgoals']
 
@@ -224,7 +230,7 @@ while True:
     env.render("human")
     if not args.manual_mode:
         result = agent.act(obs)
-        action = result['action']
+        action = result['action'].item()
 
         if check_subgoal_completion: # temporary; for demo agent
             expected_completed_subgoals = result['completed_subgoals']

@@ -8,13 +8,13 @@ import babyai.rl
 from .. import utils
 
 
-def get_vocab_path(model_name, model_version="recent"):
-    return os.path.join(utils.get_model_dir(model_name), f"vocab_{model_version}.json")
+def get_vocab_path(model_name, vocab_version="recent"):
+    return os.path.join(utils.get_model_dir(model_name), f"vocab_{vocab_version}.json")
 
 
 class Vocabulary:
-    def __init__(self, model_name, model_version="recent"):
-        self.path = get_vocab_path(model_name, model_version)
+    def __init__(self, model_name, vocab_version="recent"):
+        self.path = get_vocab_path(model_name, vocab_version)
         self.max_size = 100
         if os.path.exists(self.path):
             self.vocab = json.load(open(self.path))
@@ -42,16 +42,15 @@ class Vocabulary:
 
 
 class InstructionsPreprocessor(object):
-    def __init__(self, model_name, load_vocab_from=None):
+    def __init__(self, model_name, load_vocab_from=None, model_version='current'):
         self.model_name = model_name
-        self.vocab = Vocabulary(model_name)
+        self.vocab = Vocabulary(model_name, vocab_version=model_version)
 
-        path = get_vocab_path(model_name)
-        if not os.path.exists(path) and load_vocab_from is not None:
+        if not os.path.exists(self.vocab.path) and load_vocab_from is not None:
             # self.vocab.vocab should be an empty dict
-            secondary_path = get_vocab_path(load_vocab_from)
+            secondary_path = get_vocab_path(load_vocab_from, vocab_version=model_version)
             if os.path.exists(secondary_path):
-                old_vocab = Vocabulary(load_vocab_from)
+                old_vocab = Vocabulary(load_vocab_from, vocab_version=model_version)
                 self.vocab.copy_vocab_from(old_vocab)
             else:
                 raise FileNotFoundError('No pre-trained model under the specified name')
@@ -98,9 +97,9 @@ class IntImagePreprocessor(object):
 
 
 class ObssPreprocessor:
-    def __init__(self, model_name, obs_space=None, load_vocab_from=None):
+    def __init__(self, model_name, obs_space=None, load_vocab_from=None, model_version='current'):
         self.image_preproc = RawImagePreprocessor()
-        self.instr_preproc = InstructionsPreprocessor(model_name, load_vocab_from)
+        self.instr_preproc = InstructionsPreprocessor(model_name, load_vocab_from, model_version=model_version)
         self.vocab = self.instr_preproc.vocab
         self.obs_space = {
             "image": 147,

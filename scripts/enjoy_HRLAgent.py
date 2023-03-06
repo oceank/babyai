@@ -79,12 +79,13 @@ utils.seed(args.seed)
 skill_library = {}
 skill_memory_size = None
 skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
+skill_model_version = 'best'
 with open(skill_model_names_fp, 'r') as f:
     skill_names = f.readlines()
     skill_names = [skill_name.strip() for skill_name in skill_names]
 
     for skill_model_name in skill_names:
-        skill = utils.load_skill(skill_model_name, args.skill_budget_steps)
+        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
         skill['model'].to(device)
         skill_library[skill['description']] = skill
     # assume all skills use the same memory size for their LSTM componenet
@@ -167,6 +168,7 @@ def keyDownCb(event):
 
 
     # Map the key to an action
+    result = None
     if keyboard_input in action_map:
         action = env.actions[action_map[keyboard_input]]
     elif keyboard_input in subgoal_indices_str:
@@ -189,7 +191,7 @@ def keyDownCb(event):
     keyboard_input = ""
     obs, reward, done, _ = env.step(action)
 
-    if args.print_primitive_action_info:
+    if result is not None and args.print_primitive_action_info:
         msg = ""
         if 'dist' in result and 'value' in result:
             dist, value = result['dist'], result['value']

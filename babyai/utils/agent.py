@@ -33,13 +33,13 @@ class Agent(ABC):
 class ModelAgent(Agent):
     """A model-based agent. This agent behaves using a model."""
 
-    def __init__(self, model_or_name, obss_preprocessor, argmax):
+    def __init__(self, model_or_name, obss_preprocessor, argmax, model_version):
         if obss_preprocessor is None:
             assert isinstance(model_or_name, str)
-            obss_preprocessor = utils.ObssPreprocessor(model_or_name)
+            obss_preprocessor = utils.ObssPreprocessor(model_or_name, model_version=model_version)
         self.obss_preprocessor = obss_preprocessor
         if isinstance(model_or_name, str):
-            self.model = utils.load_model(model_or_name)
+            self.model = utils.load_model(model_or_name, model_version=model_version)
             if torch.cuda.is_available():
                 self.model.cuda()
         else:
@@ -442,12 +442,12 @@ class SubGoalModelAgent(ModelAgent):
     # How to decide the subgoals:
     #           currently created by collectively use the environment
     #           information and BabyAI language
-    def __init__(self, subgoals, goal, obss_preprocessor, argmax):
+    def __init__(self, subgoals, goal, obss_preprocessor, argmax, model_version='current'):
         self.subgoals = subgoals
 
         self.goal = goal
         for subgoal in self.subgoals:
-            subgoal['model'] = utils.load_model(subgoal['model_name'])
+            subgoal['model'] = utils.load_model(subgoal['model_name'], model_version='best')
             if torch.cuda.is_available():
                 subgoal['model'].cuda()
 
@@ -477,7 +477,7 @@ class SubGoalModelAgent(ModelAgent):
         self.current_subgoal_idx = subgoal_idx
         self.model = self.subgoals[self.current_subgoal_idx]['model']
         self.obss_preprocessor = utils.ObssPreprocessor(
-            self.subgoals[self.current_subgoal_idx]['model_name'])
+            self.subgoals[self.current_subgoal_idx]['model_name'], model_version='best')
         self.current_subgoal_desc = self.subgoals[self.current_subgoal_idx]['desc']
         self.current_subgoal_instr = self.subgoals[self.current_subgoal_idx]['instr']
 
@@ -667,21 +667,23 @@ class HRLAgent(ModelAgent):
     def __init__(
         self, model_or_name, obss_preprocessor, argmax,
         skill_library, skill_memory_size, subgoal_set,
-        use_vlm=True, abstract_history=False, only_attend_immediate_media=True):
+        use_vlm=True, abstract_history=False, only_attend_immediate_media=True,
+        model_version='current'):
 
         self.skill_library = skill_library
         self.subgoal_set = subgoal_set
+        self.model_version=model_version
 
         # for the high-level policy module
         if obss_preprocessor is None:
             assert isinstance(model_or_name, str)
-            obss_preprocessor = utils.ObssPreprocessor(model_or_name)
+            obss_preprocessor = utils.ObssPreprocessor(model_or_name, model_version=model_version)
         self.obss_preprocessor = obss_preprocessor
         # 1: Load the 'recent' version of model from model name
         # 2: Load the 'best' versin of model from model
         # ToDo: add a model_version as a parameter to the constructor
         if isinstance(model_or_name, str):
-            self.model = utils.load_model(model_or_name)
+            self.model = utils.load_model(model_or_name, model_version=model_version)
             if torch.cuda.is_available():
                 self.model.cuda()
         else:
@@ -960,17 +962,22 @@ def load_agent(
         model_name, argmax=True,
         subgoals=None, goal=None,
         skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False, only_attend_immediate_media=True,
-        demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,):
+        demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,
+        model_version='current'):
     # env_name needs to be specified for demo agents
     if model_name == 'BOT':
         return BotAgent(env)
     elif model_name == "SubGoalModelAgent":
-        return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax)
+        return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax, model_version=model_version)
     elif model_name is not None:
-        obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space)
+        obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space, model_version=model_version)
         if skill_library is not None:
-            return HRLAgent(model_name, obss_preprocessor, argmax, skill_library, skill_memory_size, subgoal_set, use_vlm, abstract_history, only_attend_immediate_media)
+            return HRLAgent(
+                model_name, obss_preprocessor, argmax,
+                skill_library, skill_memory_size, subgoal_set,
+                use_vlm, abstract_history, only_attend_immediate_media,
+                model_version=model_version)
         else:
-            return ModelAgent(model_name, obss_preprocessor, argmax)
+            return ModelAgent(model_name, obss_preprocessor, argmax, model_version=model_version)
     elif demos_origin is not None or demos_name is not None:
         return DemoAgent(demos_name=demos_name, env_name=env_name, origin=demos_origin, check_subgoal_completion=check_subgoal_completion)

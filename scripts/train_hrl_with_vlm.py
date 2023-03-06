@@ -129,12 +129,13 @@ print(f"===>    Loading skill library from {args.skill_names_file}")
 skill_library = {}
 skill_memory_size = None
 skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
+skill_model_version = 'best'
 with open(skill_model_names_fp, 'r') as f:
     skill_names = f.readlines()
     skill_names = [skill_name.strip() for skill_name in skill_names]
 
     for skill_model_name in skill_names:
-        skill = utils.load_skill(skill_model_name, args.skill_budget_steps)
+        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
         skill['model'].to(device)
         skill_library[skill['description']] = skill
         if skill['description'] == "DropNextTo":
