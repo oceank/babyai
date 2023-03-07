@@ -173,7 +173,7 @@ logger = logging.getLogger(__name__)
 if 'emb' in args.arch:
     obss_preprocessor = utils.IntObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
 else:
-    obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model)
+    obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space, args.pretrained_model, model_version='current')
 
 
 # Parameters for VLM
@@ -293,7 +293,7 @@ if acmodel is None:
         )
 
 obss_preprocessor.vocab.save()
-utils.save_model(acmodel, args.model)
+utils.save_model(acmodel, args.model, model_version='current')
 
 if torch.cuda.is_available():
     acmodel.cuda()
@@ -480,7 +480,7 @@ while status['num_frames'] < args.frames:
         obss_preprocessor.vocab.save()
         with open(status_path, 'w') as dst:
             json.dump(status, dst)
-            utils.save_model(acmodel, args.model)
+            utils.save_model(acmodel, args.model, model_version='current')
 
         # Testing the model before saving
         if args.use_subgoal:
@@ -488,7 +488,7 @@ while status['num_frames'] < args.frames:
                 args.model, obss_preprocessor, argmax=True,
                 subgoals=None, goal=None, skill_library=skill_library, use_vlm=args.use_vlm, use_subgoal_desc=args.use_subgoal_desc)
         else:
-            agent = ModelAgent(args.model, obss_preprocessor, argmax=True)
+            agent = ModelAgent(args.model, obss_preprocessor, argmax=True, model_version='current')
 
         if (not args.use_subgoal) and acmodel.use_vlm:
             history = acmodel.history
@@ -522,8 +522,8 @@ while status['num_frames'] < args.frames:
             save_model = True
         if save_model:
             # save the best model and corresponding vocabulary up to now
-            utils.save_model(acmodel, args.model, 'best')
-            obss_preprocessor.vocab.save(utils.get_vocab_path(args.model, 'best'))
+            utils.save_model(acmodel, args.model, model_version='best')
+            obss_preprocessor.vocab.save(utils.get_vocab_path(args.model, vocab_version='best'))
             logger.info("Return {: .2f}; best model is saved".format(mean_return))
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
