@@ -95,7 +95,9 @@ for skill_desc in skill_library:
 # Initialize subgoal set
 subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
 subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
-subgoal_set.display_all_subgoals()
+subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_set_type+".txt")
+#subgoal_set_names_fp=None
+subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 if args.model is None:
@@ -104,7 +106,7 @@ if args.model is None:
         args.env, args.seed, num_high_level_actions,
         args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
         abstract_history=False, only_attend_immediate_media=False)
-    utils.save_model(acmodel, args.model)
+    utils.save_model(acmodel, args.model, model_version='current')
 
 max_num_episodes = 100
 subgoal_idx = 0
@@ -124,7 +126,8 @@ mission = obs["mission"]
 agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
-        subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False)
+        subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
+        model_version='current')
 agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
 if not args.manuall_select_subgoal:
@@ -164,6 +167,7 @@ def keyDownCb(event):
     # Avoiding processing of observation by agent for wrong key clicks
     if not ((keyboard_input in action_map) or (keyboard_input == "enter") or (keyboard_input in subgoal_indices_str)):
         print(f"Keyboard input, {keyboard_input}, is not supported. Please try a valid one.")
+        keyboard_input = ""
         return
 
 
