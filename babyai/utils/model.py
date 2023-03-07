@@ -15,11 +15,11 @@ def get_model_dir(model_name):
     return os.path.join(utils.storage_dir(), "models", model_name)
 
 
-def get_model_path(model_name, model_version="recent"):
+def get_model_path(model_name, model_version="current"):
     return os.path.join(get_model_dir(model_name), f"model_{model_version}.pt")
 
 
-def load_model(model_name, raise_not_found=True, model_version="recent"):
+def load_model(model_name, raise_not_found=True, model_version="current"):
     path = get_model_path(model_name, model_version)
     try:
         if torch.cuda.is_available():
@@ -33,7 +33,7 @@ def load_model(model_name, raise_not_found=True, model_version="recent"):
             raise FileNotFoundError("No model found at {}".format(path))
 
 
-def save_model(model, model_name, model_version="recent"):
+def save_model(model, model_name, model_version="current"):
     path = get_model_path(model_name, model_version)
     utils.create_folders_if_necessary(path)
     if hasattr(model, 'use_vlm') and hasattr(model, 'history'):
@@ -67,7 +67,7 @@ def load_skill(skill_model_name, budget_steps, model_version):
     skill['model'] = load_model(skill['model_name'], model_version=model_version)
 
     # load the learned vocab of the skill and use it to tokenize the subgoal
-    skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'])
+    skill["obss_preprocessor"] = utils.ObssPreprocessor(skill['model_name'], model_version=model_version)
     skill["budget_steps"] = budget_steps
     skill['description'] = retrieve_skill_description(skill_model_name)
     return skill
