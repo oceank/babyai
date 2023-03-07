@@ -11,6 +11,7 @@ import time
 import babyai.utils as utils
 from babyai.levels.verifier import LowlevelInstrSet
 
+import torch
 import numpy as np
 
 # Parse arguments
@@ -97,7 +98,7 @@ if use_subgoals:
 
 # Define agent
 model_version='best'
-check_subgoal_completion = False #True # temporary; set it as an input argument to the script
+check_subgoal_completion = True #True # temporary; set it as an input argument to the script
 agent = utils.load_agent(
     env, args.model, argmax=args.argmax,
     subgoals=subgoals, goal=goal,
@@ -114,6 +115,7 @@ action = None
 
 lowlevel_instr_set = LowlevelInstrSet()
 print(f"Total number of subgoals: {len(lowlevel_instr_set.all_subgoals)}")
+lowlevel_instr_set.display_all_subgoals()
 lowlevel_instr_set.reset_valid_subgoals(env)
 print(f"# of valid subgoals: {len(lowlevel_instr_set.current_valid_subgoals)}")
 if check_subgoal_completion: # temporary; for demo agent
@@ -167,7 +169,9 @@ def keyDownCb(event):
                 return
             else:
                 result = agent.act(obs)
-                action = result['action'].item()
+                action = result['action']
+                if isinstance(action, torch.Tensor):
+                    action = action.item()
                 if check_subgoal_completion: # temporary; for demo agent
                     expected_completed_subgoals = result['completed_subgoals']
 
@@ -230,7 +234,9 @@ while True:
     env.render("human")
     if not args.manual_mode:
         result = agent.act(obs)
-        action = result['action'].item()
+        action = result['action']
+        if isinstance(action, torch.Tensor):
+            action = action.item()
 
         if check_subgoal_completion: # temporary; for demo agent
             expected_completed_subgoals = result['completed_subgoals']

@@ -12,7 +12,7 @@ OBJ_TYPES_NOT_DOOR = list(filter(lambda t: t != 'door', OBJ_TYPES))
 # Locations are all relative to the agent's starting position
 LOC_NAMES = ['left', 'right', 'front', 'behind']
 
-SKILL_DESCRIPTIONS = ["GoTo", "OpenBox", "OpenDoor", "PassDoor", "Pickup", "DropNextTo", "DropNextNothing"]
+SKILL_DESCRIPTIONS = ["OpenDoor", "PassDoor", "OpenBox", "Pickup", "GoTo", "DropNextTo", "DropNextNothing"]
 
 # Environment flag to indicate that done actions should be
 # used by the verifier
