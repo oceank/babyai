@@ -13,6 +13,14 @@ OBJ_TYPES_NOT_DOOR = list(filter(lambda t: t != 'door', OBJ_TYPES))
 LOC_NAMES = ['left', 'right', 'front', 'behind']
 
 SKILL_DESCRIPTIONS = ["OpenDoor", "PassDoor", "OpenBox", "Pickup", "GoTo", "DropNextTo", "DropNextNothing"]
+SKILL_DESC_INDICES = {
+    "OpenDoor" : 0,
+    "PassDoor" : 1,
+    "OpenBox"  : 2,
+    "Pickup"   : 3,
+    "GoTo"     : 4,
+    "DropNextTo" : 5,
+    "DropNextNothing" : 6}
 
 # Environment flag to indicate that done actions should be
 # used by the verifier
