@@ -218,9 +218,15 @@ class LowlevelInstrSet:
 
         return subgoals
 
-    def display_all_subgoals(self):
-        for subgoal in self.all_subgoals:
-            print(f"[{subgoal[0]}] {subgoal[1].instr_desc}")
+    def display_all_subgoals(self, print_to_screen=True, file_to_save=None):
+        if print_to_screen:
+            for subgoal in self.all_subgoals:
+                print(f"[{subgoal[0]}] {subgoal[1].instr_desc}")
+
+        if file_to_save is not None:
+            with open(file_to_save, 'w') as f:
+                for subgoal in self.all_subgoals:
+                    f.write(f"[{subgoal[0]}] {subgoal[1].instr_desc}\n")
 
     def reset_valid_subgoals(self, env):
         self.initial_valid_subgoals = self.filter_valid_subgoals(self.all_subgoals, env, need_reset=True)
