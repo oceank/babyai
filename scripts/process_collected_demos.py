@@ -99,7 +99,7 @@ for demos_name in demos_name_list:
 
 df.loc['total', :] = df.sum(axis=0)
 print(df)
-df.to_csv("applied_skills_demos_stat.csg")
+df.to_csv("applied_skills_demos_stat.csv")
     
 
 
