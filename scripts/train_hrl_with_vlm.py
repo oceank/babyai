@@ -177,7 +177,7 @@ model_curr_path = os.path.join(model_dir, "model_curr.pt")
 if args.save_initial_model:
     utils.save_model(acmodel, args.model, "init")
 # Start to save the 'recent version' of model
-utils.save_model(acmodel, args.model, "recent")
+utils.save_model(acmodel, args.model, model_version="current")
 
 utils.configure_logging(args.model)
 logger = logging.getLogger(__name__)
@@ -329,7 +329,8 @@ while status['num_frames'] < args.frames:
         csv_writer.writerow(data)
 
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
-        torch.save(acmodel, os.path.join(model_dir, "model.pt"))
+        #torch.save(acmodel, os.path.join(model_dir, "model.pt"))
+        utils.save_model(acmodel, args.model, model_version='current')
 
     '''
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
