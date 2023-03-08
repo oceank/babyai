@@ -147,8 +147,11 @@ for skill_desc in skill_library:
 # Initialize subgoal set
 print(f"===>    Initializing the predefined subgoal set")
 subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
-subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
-subgoal_set.display_all_subgoals()
+subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_set_type+".txt")
+# If the subgoal set file exists, then do not regenerate it.
+if os.path.exists(subgoal_set_names_fp):
+    subgoal_set_names_fp=None
+subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 print(f"===>    Creating a random HRL-VLM model or load the model from {args.model}")
