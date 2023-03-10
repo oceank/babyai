@@ -618,7 +618,7 @@ class HRLAgentHistory():
         self.token_seqs = token_seqs
         self.vis_obss = vis_obss
         self.highlevel_actions = highlevel_actions
-        self.highleve_time_steps = highlevel_timesteps
+        self.highlevel_time_steps = highlevel_timesteps
         self.hla_hid_indices = hla_hid_indices
         self.subgoals_status = subgoals_status
         self.lowlevel_actions = lowlevel_actions
@@ -757,7 +757,7 @@ class HRLAgent(ModelAgent):
         '''
 
         self.history.highlevel_actions = []
-        self.history.highleve_time_steps = []
+        self.history.highlevel_time_steps = []
         self.history.subgoals_status = []
         self.history.lowlevel_actions = []
         self.history.rewards = []
@@ -913,7 +913,7 @@ class HRLAgent(ModelAgent):
         self.current_skill = self.skill_library[skill_desc]
 
         # update the history
-        self.history.highleve_time_steps.append(self.current_subgoal_start_time)
+        self.history.highlevel_time_steps.append(self.current_subgoal_start_time)
         self.history.highlevel_actions.append(highlevel_action)
         ## append the token sequence of the new subgoal to self.token_seqs
         if self.use_vlm:
