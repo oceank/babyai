@@ -623,13 +623,15 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                  adam_eps=1e-5, clip_eps=0.2, epochs=4,
                  preprocess_obss=None, reshape_reward=None,
                  agent=None, num_episodes=None, generate_subgoal_desc=False,
-                 num_episodes_per_batch=1, average_loss_by_subgoals=True, episode_weight_type=0):
+                 num_episodes_per_batch=1, average_loss_by_subgoals=True, episode_weight_type=0,
+                 demos=None):
         num_episodes = num_episodes or 10
 
         super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                          value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
                          agent=agent, num_episodes=num_episodes,
-                         generate_subgoal_desc=generate_subgoal_desc,)
+                         generate_subgoal_desc=generate_subgoal_desc,
+                         demos=demos)
 
         self.clip_eps = clip_eps
         self.epochs = epochs
@@ -826,10 +828,16 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     subgoal_weight = subgoal_mask.clone()
                 elif self.episode_weight_type == 1:
                     subgoal_weight = subgoal_mask / num_of_subgoals_in_batch
+                elif (self.episode_weight_type == 2) or (self.episode_weight_type == 3):
+                    subgoal_weight = subgoal_mask.clone()
                 else:
                     raise(Exception(f"Unsupported episode_weight_type, {self.episode_weight_type}"))
 
-
+                if self.demos:
+                    skipped_label = -1
+                    logits_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, self.acmodel.num_of_actions, device=self.device)
+                    labels_subgoals = torch.ones(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, dtype=int, device=self.device)*(skipped_label)
+                    loss_fct = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=skipped_label)
                 value_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, device=self.device)
                 entropy_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, device=self.device)
                 log_prob_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, device=self.device)
@@ -846,7 +854,6 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     ep = exps[ep_id]
 
                     model_results = self.acmodel(ep.history[0])
-                    hla_indices = ep.history[0].hla_hid_indices[:-1]
                     dist = model_results['dist']
                     raw_value = model_results['value']
 
@@ -854,6 +861,11 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     raw_log_prob = dist.log_prob(torch.stack(ep.action, dim=0).unsqueeze(dim=1))
 
                     # currently support one process/one environment
+                    hla_indices = ep.history[0].hla_hid_indices[:-1]
+                    if self.demos:
+                        hla_indices = ep.history[0].hla_hid_indices
+                        logits_subgoals[idx, :num_of_subgoals] = model_results['logits'][range(num_envs), hla_indices]
+                        labels_subgoals[idx, :num_of_subgoals] = torch.tensor(ep.history[0].highlevel_actions, dtype=int, device=self.device)
                     value_subgoals[idx, :num_of_subgoals] = raw_value[range(num_envs), hla_indices]
                     entropy_subgoals[idx, :num_of_subgoals] = raw_entropy[range(num_envs), hla_indices]
                     log_prob_subgoals[idx, :num_of_subgoals] = raw_log_prob[range(num_of_subgoals), hla_indices]
@@ -865,42 +877,61 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     ep_value[idx, :num_of_subgoals] = torch.stack(ep.value, dim=0)
                     ep_returnn[idx, :num_of_subgoals] = torch.stack(ep.returnn, dim=0)
 
-                ratio = torch.exp(log_prob_subgoals - ep_log_prob)
-                surr1 = ratio * ep_advantage
-                surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep_advantage
-                policy_loss = -torch.min(surr1, surr2)
+                if self.demos:
+                    loss = loss_fct(
+                        logits_subgoals.view(-1, logits_subgoals.size(-1)),
+                        labels_subgoals.view(-1)
+                    )
+                    loss = loss.view(-1, max_num_of_subgoals_in_bacth)
+                else:
+                    ratio = torch.exp(log_prob_subgoals - ep_log_prob)
+                    surr1 = ratio * ep_advantage
+                    surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * ep_advantage
+                    policy_loss = -torch.min(surr1, surr2)
 
-                value_clipped = ep_value + torch.clamp(value_subgoals - ep_value, -self.clip_eps, self.clip_eps)
-                surr1 = (value_subgoals - ep_returnn).pow(2)
-                surr2 = (value_clipped - ep_returnn).pow(2)
-                value_loss = torch.max(surr1, surr2)
+                    value_clipped = ep_value + torch.clamp(value_subgoals - ep_value, -self.clip_eps, self.clip_eps)
+                    surr1 = (value_subgoals - ep_returnn).pow(2)
+                    surr2 = (value_clipped - ep_returnn).pow(2)
+                    value_loss = torch.max(surr1, surr2)
 
-                loss = policy_loss - self.entropy_coef * entropy_subgoals + self.value_loss_coef * value_loss
+                    loss = policy_loss - self.entropy_coef * entropy_subgoals + self.value_loss_coef * value_loss
+
                 loss = loss*subgoal_weight*subgoal_mask
                 if self.episode_weight_type==0:
                     loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean()
-                else: # ==1. average the loss of each subgoal across an episode has been applied in subgoal_weight
-                    loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).sum()
+                elif self.episode_weight_type==1: # ==1. the weight of each subgoal's loss is 1/(number of subgoals in the episode)
+                    loss = (loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean()
+                elif self.episode_weight_type==2: # average across all subgoals in all episodes in the batch
+                    loss = loss.sum()/subgoal_mask.sum()
+                else: # ==3, first average inside each episode, then average across all episodes in the batch
+                    loss = (loss.sum(dim=1)/subgoal_mask.sum(dim=1)).mean()
 
                 # Update batch values
-
                 batch_entropy += (entropy_subgoals.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
                 batch_value += (value_subgoals.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
-                batch_policy_loss += (policy_loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
-                batch_value_loss += (value_loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
+                if self.demos is None:
+                    batch_policy_loss += (policy_loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
+                    batch_value_loss += (value_loss.sum(dim=0)/subgoal_mask.sum(dim=0)).mean().item()
                 batch_loss += loss
 
 
                 # Update actor-critic
-
                 self.optimizer.zero_grad()
                 batch_loss.backward()
                 grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.acmodel.parameters() if p.grad is not None) ** 0.5
                 torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
-                # Update log values
+                # Clear 'image_embeds' and 'media_locations'
+                #   save GPU memory
+                #   make it ready for new image_embeds in the next epoch
+                for idx, ep_id in enumerate(episode_ids[batch_start:batch_after_end]):
+                    ep = exps[ep_id]
+                    ep.history[0].token_seqs['image_embeds'] = None
+                    ep.history[0].token_seqs['media_locations'] = None
 
+
+                # Update log values
                 log_entropies.append(batch_entropy)
                 log_values.append(batch_value)
                 log_policy_losses.append(batch_policy_loss)
@@ -909,7 +940,6 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 log_losses.append(batch_loss.item())
 
             # Log some values
-
             logs["entropy"] = numpy.mean(log_entropies)
             logs["value"] = numpy.mean(log_values)
             logs["policy_loss"] = numpy.mean(log_policy_losses)

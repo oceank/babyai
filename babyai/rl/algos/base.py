@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import torch
 import numpy as np
+import blosc
 
 from babyai.rl.format import default_preprocess_obss
 from babyai.rl.utils import DictList, ParallelEnv
@@ -885,7 +886,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
 
     def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
                  value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
-                 agent, num_episodes, generate_subgoal_desc=False):
+                 agent, num_episodes, generate_subgoal_desc=False, demos=None):
         """
         Initializes a `BaseAlgoFlamingoHRLv1` instance.
 
@@ -976,6 +977,17 @@ class BaseAlgoFlamingoHRLv1(ABC):
         self.log_num_frames = [0] * self.num_episodes
         self.log_num_subgoals = [0] * self.num_episodes
 
+        # Supervise Training of the vlm that maps a history to a high-level action in a PPO fashion
+        # * Randomize the collected demos
+        # * For each iteration, fetch the next batch of episodes
+        # * Split the batch into a number of minibatch, say N
+        # * Update the vlm N times using the minibatches
+        # Each episode in self.demos is a tuple as:
+        #   (mission, blosc.pack_array(np.array(images)), directions, actions, completed_subgoals, reward, seed+len(demos))
+        self.demos = demos
+        self.batch_start_epsode_idx_in_demos = -1
+        if self.demos:
+            self.batch_start_epsode_idx_in_demos = 0
 
     def collect_experiences(self):
         """Collects rollouts and computes advantages.
@@ -1021,68 +1033,191 @@ class BaseAlgoFlamingoHRLv1(ABC):
 
         for ep_idx in range(self.num_episodes):
 
-            #self.obss[ep_idx] = []
+            # Initialize logging information
             self.actions[ep_idx] = []
             self.values[ep_idx] = []
             self.rewards[ep_idx] = []
             self.advantages[ep_idx] = []
             self.log_probs[ep_idx] = []
 
-            # self.obs is a list of observations from multiple environments
-            # Currently only support one process. That is, self.env.reset() only has one element.
-            self.obs = self.env.reset()[0]
-            goal = self.obs['mission']
-            initial_obs = self.obs
-            cur_env = self.env.envs[0]
-            self.agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
-            # walkaround for using DictList. only one history per episode for now
-            self.histories[ep_idx] = [self.agent.history]
+            if self.demos: # only self.actions is useful. It has the list of labels for the supervise training
+                # Fetch the episode from demos
+                demo_idx = self.batch_start_epsode_idx_in_demos + ep_idx
+                if demo_idx >= len(self.demos):
+                    continue
+                demo = self.demos[demo_idx]
+                goal = demo[0]
+                all_images = demo[1]
+                completed_subgoals = demo[4]
+                reward = demo[5]
+                # transform the retrieved info
+                all_images = blosc.unpack_array(all_images)
+                n_observations = all_images.shape[0]
+                initial_obs = {'image':all_images[0]}
 
-            done = False
-            episode_num_subgoals = 0
-            self.log_episode_num_frames[ep_idx] = 0
-            while not done:
-                # Check if a subgoal is needed. If yes, generate a subgoal description.
-                if self.agent.need_new_subgoal():
-                    with torch.no_grad():
-                        highlevel_action, log_prob, value = self.agent.propose_new_subgoal(cur_env, is_training=True)
+                # Reset the agent
+                self.obs = initial_obs
+                self.agent.reset_subgoal_and_skill()
+                self.agent.reset_history(goal, initial_obs)
+                self.agent.current_time_step = 0
+                self.agent.goal = goal
+                # Walkaround for using DictList. only one history per episode for now
+                self.histories[ep_idx] = [self.agent.history]
+
+                """
+                For each iteration in the while loop:
+                    the starting point maps to the time step when the previous subgoal is done or the mission just starts. self.agent.history contains:
+                        the goal description,
+                        all previous subgoals' description and their statuses
+                        all the relevant visual observations (including the ones finishing the previous subgoal or the initial observation)
+
+                    self.agent.current_subgoal_start_time = self.agent.current_time_step
+                    Check the next recorded piece in the demo until the next completed subgoal(s) are found or the mission is done
+                    Update self.agent.current_time_step properly
+                    Save the high-level action as the target label
+                    If the mission is not done, accumulate the following to self.agent.history
+                        the description of the subgoal indicated by the high-level action
+                        the sequence of visual observations that completes the subgoal
+                        the status of the subgoal
+                """
+                episode_num_subgoals = 0
+                done = False
+                while not done:
+                    # Update current_subgoal_start_time for searching for the next completed subgoal
+                    # Here, current_subgoal_start_time refers the timesteps when the mission starts (timestep 0) or the previous subgoal finishes
+                    self.agent.current_subgoal_start_time = self.agent.current_time_step
+
+                    # When the mission is None done and the the next completed subgoal has not been found, check the next timestep.
+                    # In collected demonstrations, the 'completed_subgoals' info at time t+1 are saved in the indice t in the demo record.
+                    found_next_completed_subgoal = False
+                    while not found_next_completed_subgoal:
+                        self.agent.current_time_step += 1 # the next timestep to check
+                        found_next_completed_subgoal = (len(completed_subgoals[self.agent.current_time_step-1]) > 0)
+                        done = (self.agent.current_time_step == n_observations)
+                        if done:
+                            break
+
+                    # If not done and found a completed subgoal
+                    if (not done) and found_next_completed_subgoal:
                         episode_num_subgoals += 1
+                        # Set the current subgoal idx as the label for the current history
+                        #   At some point, the agent may complete several DropNextTo subgoals simulataneously.
+                        #   Then, randomly select one as the completed target subgoal
+                        completed_subgoal_indices = completed_subgoals[self.agent.current_time_step-1]
+                        highlevel_action = completed_subgoal_indices[0]
+                        if len(completed_subgoal_indices) > 1:
+                            highlevel_action = np.random.choice(completed_subgoal_indices)
+                        self.agent.history.highlevel_actions.append(highlevel_action)
+                        self.agent.history.highlevel_time_steps.append(self.agent.current_subgoal_start_time)
+                        #   update the info of the current subgoal in the agent
+                        self.agent.current_subgoal = self.agent.subgoal_set.all_subgoals[highlevel_action]
+                        self.agent.current_subgoal_idx = self.agent.current_subgoal[0]
+                        self.agent.current_subgoal_instr = self.agent.current_subgoal[1]
+                        self.agent.current_subgoal_desc = self.agent.current_subgoal_instr.instr_desc
+                        self.agent.current_subgoal_status = 0 # 0: in progress, 1: success, 2: faliure
 
-                # Apply the corresponding skill to solve the subgoal until it is done
-                while (not done) and self.agent.current_subgoal_status == 0:
-                    # Pretrained Skills Are Fixed:
-                    #   no_grad() is applied inside act() such that the pretrained
-                    #   skill will not be modified during backward propagation.
-                    result = self.agent.act(self.obs)
-                    action = result['action'].item()
-                    obs, reward, done, _ = cur_env.step(action)
-                    # Update the current_time_step and accumulate information to the agent's history
-                    self.agent.current_time_step += 1
-                    self.agent.accumulate_env_info_to_history(action, obs, reward, done)
-                    # check if the current subgoal is done
-                    self.agent.verify_current_subgoal(action)
-                    if done or (self.agent.current_subgoal_status != 0): # the current subgoal is done
-                        # subgoal_success = self.agent.current_subgoal_status == 1
-                        # append the subgoal status to the agent's history
+                        # Accumulate input info in the history for the next subgoal prediction
+                        #   append the sugboal's description to the agent's history.
+                        b_idx = 0
+                        start = self.agent.history.token_seq_lens[b_idx]
+                        new_subgoal_token_len = self.agent.subgoals_token_lens[highlevel_action]
+                        end = start + new_subgoal_token_len
+                        self.agent.history.token_seqs['input_ids'][b_idx, start:end] = self.agent.subgoals_token_seqs['input_ids'][highlevel_action, :new_subgoal_token_len]
+                        self.agent.history.token_seqs['attention_mask'][b_idx, start:end] = 1
+                        #   append the elapsed visual observations to the agent's history
+                        t = self.agent.current_subgoal_start_time + 1
+                        while t <= self.agent.current_time_step :
+                            #accumulate the visual observations
+                            obs = {'image': all_images[t]}
+                            self.agent.history.vis_obss.append(obs)
+                            t += 1
+                        #   append the subgoal's status to the agent's history.
+                        #   update hla_hid_indices[-1] to have it refers to the index of hidden state that is used by VLM to predict the next subgoal
+                        self.agent.current_subgoal_status = 1 # 0: in progress, 1: success, 2: faliure
                         self.agent.update_history_with_subgoal_status()
 
-                    # Update the observation that will be used by the current/new skill
-                    self.obs = obs
+                if found_next_completed_subgoal: # If the mission is done and found a completed subgoal
+                    episode_num_subgoals += 1
+                    # Set the current subgoal idx as the label for the current history
+                    completed_subgoal_indices = completed_subgoals[self.agent.current_time_step-1]
+                    highlevel_action = completed_subgoal_indices[0]
+                    if len(completed_subgoal_indices) > 1:
+                        highlevel_action = np.random.choice(completed_subgoal_indices)
+                    self.agent.history.highlevel_actions.append(highlevel_action)
+                    self.agent.history.highlevel_time_steps.append(self.agent.current_subgoal_start_time)
 
-                # The current subgoal is done and save experiences values for the high-level policy
-                self.log_probs[ep_idx].append(log_prob)
-                self.actions[ep_idx].append(highlevel_action)
-                self.values[ep_idx].append(value)
-                ## The 'reward' is associated with the timestep when the current subgoal is done.
-                ## Reward reshaping might not be necessary for the high-level policy.
-                ## It is used when training low-level policy / predefined skill.
+                # Update actions (high-level actions)
+                self.actions[ep_idx] = [torch.tensor(action, device=self.device) for action in self.agent.history.highlevel_actions]
+                # The last frame in the episode is not saved in the demo
+                self.log_episode_num_frames[ep_idx] = n_observations + 1
+
+                # NOT NEEDED FOR SUPERISE TRAINING.
+                # Set dummy values in order not to CHANGE THE PPO CODE REGARDING self.log_probs, self.values, self.rewards, and self.advantages.
+                self.log_probs[ep_idx]  = [torch.tensor(0.0, device=self.device) for i in range(episode_num_subgoals)]
+                self.values[ep_idx]     = [torch.tensor(0.0, device=self.device) for i in range(episode_num_subgoals)]
+                self.rewards[ep_idx]    = [torch.tensor(0.0, device=self.device) for i in range(episode_num_subgoals)]
+                self.advantages[ep_idx] = [torch.tensor(0.0, device=self.device) for i in range(episode_num_subgoals)]
+                reshaped_reward = torch.tensor(reward, device=self.device)
                 if self.reshape_reward is not None:
-                    self.rewards[ep_idx].append(
-                        torch.tensor(self.reshape_reward(obs, action, reward, done), device=self.device)
-                    )
-                else:
-                    self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
-                self.advantages[ep_idx].append(0) # initialize the advantages for the episode, ep_idx
+                    action = self.actions[ep_idx][-1]
+                    reshaped_reward = torch.tensor(self.reshape_reward(obs, action, reward, done), device=self.device)
+                self.rewards[ep_idx][episode_num_subgoals-1] = reshaped_reward
+            else:
+                # self.obs is a list of observations from multiple environments
+                # Currently only support one process. That is, self.env.reset() only has one element.
+                self.obs = self.env.reset()[0]
+                initial_obs = self.obs
+                goal = self.obs['mission']
+                cur_env = self.env.envs[0]
+                self.agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
+                # walkaround for using DictList. only one history per episode for now
+                self.histories[ep_idx] = [self.agent.history]
+
+                done = False
+                episode_num_subgoals = 0
+                self.log_episode_num_frames[ep_idx] = 0
+                while not done:
+                    # Check if a subgoal is needed. If yes, generate a subgoal description.
+                    if self.agent.need_new_subgoal():
+                        with torch.no_grad():
+                            highlevel_action, log_prob, value = self.agent.propose_new_subgoal(cur_env, is_training=True)
+                            episode_num_subgoals += 1
+
+                    # Apply the corresponding skill to solve the subgoal until it is done
+                    while (not done) and self.agent.current_subgoal_status == 0:
+                        # Pretrained Skills Are Fixed:
+                        #   no_grad() is applied inside act() such that the pretrained
+                        #   skill will not be modified during backward propagation.
+                        result = self.agent.act(self.obs)
+                        action = result['action'].item()
+                        obs, reward, done, _ = cur_env.step(action)
+                        # Update the current_time_step and accumulate information to the agent's history
+                        self.agent.current_time_step += 1
+                        self.agent.accumulate_env_info_to_history(action, obs, reward, done)
+                        # check if the current subgoal is done
+                        self.agent.verify_current_subgoal(action)
+                        if done or (self.agent.current_subgoal_status != 0): # the current subgoal is done
+                            # subgoal_success = self.agent.current_subgoal_status == 1
+                            # append the subgoal status to the agent's history
+                            self.agent.update_history_with_subgoal_status()
+
+                        # Update the observation that will be used by the current/new skill
+                        self.obs = obs
+
+                    # The current subgoal is done and save experiences values for the high-level policy
+                    self.log_probs[ep_idx].append(log_prob)
+                    self.actions[ep_idx].append(highlevel_action)
+                    self.values[ep_idx].append(value)
+                    ## The 'reward' is associated with the timestep when the current subgoal is done.
+                    ## Reward reshaping might not be necessary for the high-level policy.
+                    ## It is used when training low-level policy / predefined skill.
+                    if self.reshape_reward is not None:
+                        self.rewards[ep_idx].append(
+                            torch.tensor(self.reshape_reward(obs, action, reward, done), device=self.device)
+                        )
+                    else:
+                        self.rewards[ep_idx].append(torch.tensor(reward, device=self.device))
+                    self.advantages[ep_idx].append(0) # initialize the advantages for the episode, ep_idx
 
             # The episode is done
             ## Update log values
@@ -1095,20 +1230,22 @@ class BaseAlgoFlamingoHRLv1(ABC):
             self.log_num_subgoals[ep_idx] = episode_num_subgoals
             self.log_total_num_subgoals += episode_num_subgoals
 
-            ## Add advantage and return to experiences
-            #   The mission is done after executing the last subgoal.
-            #   So, the advantage at the time point of the last subgoal is:
-            #       advantage = delta + discount * gae_lambda * 0 (next_advantage)
-            #       delta = reward - value + 0 (next_value)
-            #   (subgoal_time_step == (episode_num_subgoals - 1)): the last subgoal
-            for subgoal_time_step in reversed(range(episode_num_subgoals)):
-                is_last_subgoal = subgoal_time_step == (episode_num_subgoals - 1)
-                next_mask = 0 if is_last_subgoal else 1
-                next_value = 0 if is_last_subgoal else self.values[ep_idx][subgoal_time_step+1]
-                next_advantage = 0 if is_last_subgoal else self.advantages[ep_idx][subgoal_time_step+1]
 
-                delta = self.rewards[ep_idx][subgoal_time_step] + self.discount * next_value * next_mask - self.values[ep_idx][subgoal_time_step]
-                self.advantages[ep_idx][subgoal_time_step] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
+            if self.demos is None:
+                ## Add advantage and return to experiences
+                #   The mission is done after executing the last subgoal.
+                #   So, the advantage at the time point of the last subgoal is:
+                #       advantage = delta + discount * gae_lambda * 0 (next_advantage)
+                #       delta = reward - value + 0 (next_value)
+                #   (subgoal_time_step == (episode_num_subgoals - 1)): the last subgoal
+                for subgoal_time_step in reversed(range(episode_num_subgoals)):
+                    is_last_subgoal = subgoal_time_step == (episode_num_subgoals - 1)
+                    next_mask = 0 if is_last_subgoal else 1
+                    next_value = 0 if is_last_subgoal else self.values[ep_idx][subgoal_time_step+1]
+                    next_advantage = 0 if is_last_subgoal else self.advantages[ep_idx][subgoal_time_step+1]
+
+                    delta = self.rewards[ep_idx][subgoal_time_step] + self.discount * next_value * next_mask - self.values[ep_idx][subgoal_time_step]
+                    self.advantages[ep_idx][subgoal_time_step] = delta + self.discount * self.gae_lambda * next_advantage * next_mask
 
         # Flatten the data correctly, making sure that
         # each episode's data is a continuous chunk
@@ -1137,6 +1274,10 @@ class BaseAlgoFlamingoHRLv1(ABC):
             "num_high_level_actions_per_episode": self.log_num_subgoals,
             "num_high_level_actions": self.log_total_num_subgoals
         }
+
+        # update the start index of the next batch of episodes
+        if self.demos:
+            self.batch_start_epsode_idx_in_demos += self.num_episodes
 
         return exps, log
 

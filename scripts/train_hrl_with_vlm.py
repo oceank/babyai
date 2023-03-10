@@ -34,6 +34,7 @@ from einops import rearrange
 
 from babyai.utils.model import create_random_hrl_vlm_model, load_model
 from babyai.levels.verifier import LowlevelInstrSet
+from sklearn.model_selection import train_test_split
 
 # Parse arguments
 parser = ArgumentParser()
@@ -109,9 +110,35 @@ parser.add_argument("--save-initial-model", action="store_true", default=False,
 parser.add_argument("--generate-subgoal-desc", action="store_true", default=False,
                     help="Use the VLM to generate a sentence as the subgoal.")
 
+# filename of demos that are used for the supervise training of the VLM-based ACModel
+parser.add_argument("--demos-name", default=None,
+                    help="demos filename (REQUIRED)")
+parser.add_argument("--dataset-split-seed", type=int, default=1,
+                    help="the seed used by train_test_split() to split the dataset"
+                    )
+
 args = parser.parse_args()
 device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
+
+demos_train = None
+if args.demos_name is not None:
+    print(f"===>  Load demostrations from {args.demos_name}")
+    demos_dir = os.path.join(utils.storage_dir(), "demos")
+    demos_train_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_trainset.pkl")
+    demos_test_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_testset.pkl")
+
+    if os.path.exists(demos_train_set_path) and os.path.exists(demos_test_set_path):
+        demos_train = utils.load_demos(demos_train_set_path)
+        demos_test = utils.load_demos(demos_test_set_path)
+    else:
+        demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
+        demos = utils.load_demos(demos_path)
+        test_samples_ratio = 0.2 # episode-wise
+        total_demos = len(demos)
+        demos_train ,demos_test = train_test_split(demos, test_size=test_samples_ratio, random_state=args.dataset_split_seed)
+        utils.save_demos(demos_train, demos_train_set_path)
+        utils.save_demos(demos_test, demos_test_set_path)
 
 # Generate environments
 print(f"===>  Generate {args.procs} instances of {args.env} environment")
@@ -125,25 +152,30 @@ for i in range(args.procs):
     envs.append(env)
 
 # Load skill library
-print(f"===>    Loading skill library from {args.skill_names_file}")
+
 skill_library = {}
 skill_memory_size = None
-skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
-skill_model_version = 'best'
-with open(skill_model_names_fp, 'r') as f:
-    skill_names = f.readlines()
-    skill_names = [skill_name.strip() for skill_name in skill_names]
+if args.demos_name is None: # When demonstrations is provided for supervise training, do not load skills to save gpu memory
+    print(f"===>    Loading skill library from {args.skill_names_file}.")
+    skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
+    skill_model_version = 'best'
+    with open(skill_model_names_fp, 'r') as f:
+        skill_names = f.readlines()
+        skill_names = [skill_name.strip() for skill_name in skill_names]
 
-    for skill_model_name in skill_names:
-        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
-        skill['model'].to(device)
-        skill_library[skill['description']] = skill
-        if skill['description'] == "DropNextTo":
-            skill['budget_steps'] *= 1.5 # DropNextTo is not good as Pickup and OpenBox, thus give its more budget steps
-    # assume all skills use the same memory size for their LSTM componenet
-    skill_memory_size = skill['model'].memory_size
-for skill_desc in skill_library:
-    print(skill_desc)
+        for skill_model_name in skill_names:
+            skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
+            skill['model'].to(device)
+            skill_library[skill['description']] = skill
+            if skill['description'] == "DropNextTo":
+                skill['budget_steps'] *= 1.5 # DropNextTo is not good as Pickup and OpenBox, thus give its more budget steps
+        # assume all skills use the same memory size for their LSTM componenet
+        skill_memory_size = skill['model'].memory_size
+    for skill_desc in skill_library:
+        print(skill_desc)
+else:
+    print(f"===>    Not loading skill library from {args.skill_names_file} since the demonstration for supervise training is provided.")
+
 # Initialize subgoal set
 print(f"===>    Initializing the predefined subgoal set")
 subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
@@ -171,9 +203,6 @@ elif isinstance(args.model, str):
 print(f"===>    Saving the initial model if it is requested.")
 model_dir = os.path.join(utils.storage_dir(), "models", args.model)
 os.makedirs(model_dir)
-model_init_path = os.path.join(model_dir, "model_init.pt")
-model_best_path = os.path.join(model_dir, "model_best.pt")
-model_curr_path = os.path.join(model_dir, "model_curr.pt")
 if args.save_initial_model:
     utils.save_model(acmodel, args.model, "init")
 # Start to save the 'recent version' of model
@@ -208,7 +237,8 @@ if args.algo == "ppo":
                                 generate_subgoal_desc=args.generate_subgoal_desc,
                                 num_episodes_per_batch=args.num_episodes_per_batch,
                                 average_loss_by_subgoals=args.average_loss_by_subgoals,
-                                episode_weight_type=args.episode_weight_type)
+                                episode_weight_type=args.episode_weight_type,
+                                demos = demos_train)
     # update model when a number of subgoals finishes   
     else:
         raise NotImplementedError("The code for updating the model when a number of subgoals finishes is not implemented yet.")
@@ -295,7 +325,7 @@ while status['num_frames'] < args.frames:
 
     # Print logs
 
-    if status['i'] % args.log_interval == 0:
+    if (status['i'] % args.log_interval == 0) or (algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos))):
         total_ellapsed_time = int(time.time() - total_start_time)
         duration = datetime.timedelta(seconds=total_ellapsed_time)
         fps = logs["num_frames"] / (update_end_time - update_start_time)
@@ -331,6 +361,9 @@ while status['num_frames'] < args.frames:
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
         #torch.save(acmodel, os.path.join(model_dir, "model.pt"))
         utils.save_model(acmodel, args.model, model_version='current')
+
+    if algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos)):
+        break
 
     '''
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
