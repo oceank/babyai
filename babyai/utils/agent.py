@@ -3,6 +3,7 @@ import torch
 from .. import utils
 from babyai.bot import Bot
 from babyai.model import ACModel
+from babyai.levels.verifier import DropNextInstr, DropNextNothingInstr
 from random import Random
 
 
@@ -880,7 +881,7 @@ class HRLAgent(ModelAgent):
         #logits = model_results['logits'][0, result_idx]
 
         if self.argmax:
-            action = dist.probs.argmax(1)
+            action = dist.probs.argmax(-1)
         else:
             action = dist.sample()
         # shape of 'action': (b=1, max_lang_model_input_len)
@@ -908,6 +909,10 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_start_time = self.current_time_step
         self.current_subgoal_memory = torch.zeros(1, self.skill_memory_size, device=self.device)
         self.current_subgoal_instr.reset_verifier(env)
+        if isinstance(self.current_subgoal_instr, DropNextInstr): # ensure the agent carries an obj
+            pass
+        elif isinstance(self.current_subgoal_instr, DropNextNothingInstr): # ensure the agent carries the obj to drop
+            pass
 
         skill_desc = self.current_subgoal[2]
         self.current_skill = self.skill_library[skill_desc]
@@ -937,7 +942,7 @@ class HRLAgent(ModelAgent):
             value = result['value']
             self.current_subgoal_memory = result['memory']
 
-        action = dist.probs.argmax(1)
+        action = dist.probs.argmax(-1)
         '''
         if self.argmax:
             action = dist.probs.argmax(1)

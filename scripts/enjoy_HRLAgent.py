@@ -128,11 +128,13 @@ agent = utils.load_agent(
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
         model_version='current')
-agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
+agent.model.eval()
+with torch.no_grad():
+    agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
 if not args.manuall_select_subgoal:
     subgoal_idx += 1
-    print(f"The {subgoal_idx}th subgoal is: {agent.current_subgoal_desc}")
+    print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
 
 # Run the agent
 done = True
@@ -178,7 +180,15 @@ def keyDownCb(event):
     elif keyboard_input in subgoal_indices_str:
         subgoal_idx += 1
         agent.setup_new_subgoal_and_skill(env, int(keyboard_input))
-        print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
+        print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
+        keyboard_input = ""
+        return
+    elif keyboard_input == "a": # let the HRL agent selects the next subgoal
+        subgoal_idx += 1
+        # the current subgoal is done, so propose the next subgoal
+        with torch.no_grad():
+            agent.propose_new_subgoal(env)
+        print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
         keyboard_input = ""
         return
     # Enter: executes the agent's action by the current skill
@@ -218,14 +228,13 @@ def keyDownCb(event):
     if agent.current_subgoal_status != 0:
         subgoal_success = agent.current_subgoal_status == 1
         subgoal_status_str = "Success" if subgoal_success else "Failure"
-        print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
-
+        print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): {subgoal_status_str}")
         # append the subgoal status to the agent's history
         agent.update_history_with_subgoal_status()
 
     if done:
         if agent.current_subgoal_status == 0:
-            print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
+            print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): Incomplete. But the mission is done.")
             agent.update_history_with_subgoal_status()
 
         print(f"Reward: {reward}\n")
@@ -241,15 +250,15 @@ def keyDownCb(event):
         print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
         if not args.manuall_select_subgoal:
             subgoal_idx += 1
-            print(f"The {subgoal_idx}th subgoal is: {agent.current_subgoal_desc}")
+            print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
     else:
-        # the mission is done yet
+        # the mission is not done yet
         if agent.current_subgoal_status != 0 and (not args.manuall_select_subgoal):
             subgoal_idx += 1
             # the current subgoal is done, so propose the next subgoal
             with torch.no_grad():
                 agent.propose_new_subgoal(env)
-            print(f"The {subgoal_idx}th subgoal is: [{agent.current_subgoal_idx}] {agent.current_subgoal_desc}")
+            print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
         step += 1
 
 
@@ -290,14 +299,14 @@ while True:
         if agent.current_subgoal_status != 0:
             subgoal_success = agent.current_subgoal_status == 1
             subgoal_status_str = "Success" if subgoal_success else "Failure"
-            print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: {subgoal_status_str}")
+            print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): {subgoal_status_str}")
 
             # append the subgoal status to the agent's history
             agent.update_history_with_subgoal_status()
 
         if done:
             if agent.current_subgoal_status == 0:
-                print(f"[Step {step}] Subgoal {agent.current_subgoal_idx}: Incomplete. But the mission is done.")
+                print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): Incomplete. But the mission is done.")
                 agent.update_history_with_subgoal_status()
 
             print(f"Reward: {reward}\n")
@@ -316,17 +325,21 @@ while True:
 
             env.seed(args.seed + episode_num)
             obs = env.reset()
-            agent.on_reset(env, obs['mission'], obs) # reset the history and propose the 1st subgoal
+            with torch.no_grad():
+                agent.on_reset(env, obs['mission'], obs) # reset the history and propose the 1st subgoal
 
             step = 0
+            subgoal_idx = 1
             print(f"[Episode: {episode_num+1}] Mission: {obs['mission']}")
-            print(f"The new subgoal is: {agent.current_subgoal_desc}")
+            print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
         else:
-            # the mission is done yet
+            # the mission is not done yet and the current subgoal is done
             if agent.current_subgoal_status != 0:
-                # the current subgoal is done, so propose the next subgoal
-                agent.propose_new_subgoal(env)
-                print(f"The new subgoal is: {agent.current_subgoal_desc}")
+                with torch.no_grad():
+                    # the current subgoal is done, so propose the next subgoal
+                    agent.propose_new_subgoal(env)
+                    subgoal_idx += 1
+                print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
             step += 1
 
     if env.window.closed:
