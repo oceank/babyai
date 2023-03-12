@@ -910,20 +910,16 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_start_time = self.current_time_step
         self.current_subgoal_memory = torch.zeros(1, self.skill_memory_size, device=self.device)
         if isinstance(self.current_subgoal_instr, DropNextInstr): # ensure the agent carries an obj
-            # Used by the reset_verifier() of DropNextInstr to reset the instruction's preCarrying 
+            # Used by the reset_verifier() of DropNextInstr to reset the instruction's preCarrying
             self.current_subgoal_instr.initially_carried_world_obj = env.carrying
             # Update current_subgoal_desc with the acctually carried obj
             obj_to_drop_desc = "the " + env.carrying.color + " " + env.carrying.type if env.carrying else ""
             obj_nextto_desc = "the " + self.current_subgoal_instr.desc.color + " " + self.current_subgoal_instr.desc.type
             self.current_subgoal_desc = "drop" + obj_to_drop_desc + " next to " + obj_nextto_desc
+        if isinstance(self.current_subgoal_instr, DropNextNothingInstr): # ensure the agent carries an obj
+            # Used by the reset_verifier() of DropNextNothingInstr to reset the instruction's preCarrying
+            self.current_subgoal_instr.initially_carried_world_obj = env.carrying
         self.current_subgoal_instr.reset_verifier(env)
-
-        '''
-        if isinstance(self.current_subgoal_instr, DropNextInstr): # ensure the agent carries an obj
-            pass
-        elif isinstance(self.current_subgoal_instr, DropNextNothingInstr): # ensure the agent carries the obj to drop
-            pass
-        '''
 
         skill_desc = self.current_subgoal[2]
         self.current_skill = self.skill_library[skill_desc]
@@ -950,7 +946,7 @@ class HRLAgent(ModelAgent):
             else:
                 new_subgoal_token_len = self.subgoals_token_lens[highlevel_action]
                 new_subgoal_token_seq = self.subgoals_token_seqs['input_ids'][highlevel_action, :new_subgoal_token_len]
-            
+
             end = start + new_subgoal_token_len
             self.history.token_seqs['input_ids'][b_idx, start:end] = new_subgoal_token_seq
             self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
