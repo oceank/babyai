@@ -767,7 +767,7 @@ class PassInstr(ActionInstr):
 class DropNextInstr(ActionInstr):
     """
     Drop the carried object next to another object. Assume the agent is carring an object.
-    eg: put the red ball next to the blue key
+    eg: drop the red ball next to the blue key
     """
 
     """
@@ -792,6 +792,7 @@ class DropNextInstr(ActionInstr):
     def reset_verifier(self, env):
         super().reset_verifier(env)
 
+        # for a new instance of the level that uses DropNextInstr as the mission goal
         if self.initially_carried_world_obj is not None:
             self.preCarrying = self.initially_carried_world_obj
         else:
@@ -800,9 +801,19 @@ class DropNextInstr(ActionInstr):
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
 
+    # Expected Behavior:
+    # self.preCarrying is the object that the agent is actuallly carrying at the last time step before executing the instruction
+    # self.initially_carried_world_obj is the object that the agent is assumed to be carrying before executing the instruction.
+    # self.desc is the object that the agent needs to put its carried one next to.
+    #   self.preCarrying                :   *       ,   X       ,   None,   X
+    #   self.initially_carried_world_obj:   None    ,   X       ,   X   ,   X
+    #   self.desc                       :   *       ,   Y       ,   Y   ,   Not Existing on the grid
+    #   Expected Verification Result    :   Failure ,   Success ,   TBD ,   Failure
     def verify_action(self, action):
         # To keep track of what was carried at the last time step
         preCarrying = self.preCarrying
+        # Now, self.preCarrying is the currently carried object
+        # If it is None, then the agent is not carrying anything
         self.preCarrying = self.env.carrying
 
         # Only verify when the drop action is performed
@@ -920,6 +931,7 @@ class DropNextNothingInstr(ActionInstr):
     def reset_verifier(self, env):
         super().reset_verifier(env)
 
+        # for a new instance of the level that uses DropNextNothingInstr as the mission goal
         if self.initially_carried_world_obj is not None:
             self.preCarrying = self.initially_carried_world_obj
         else:
@@ -928,6 +940,12 @@ class DropNextNothingInstr(ActionInstr):
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
 
+    # Expected Behavior:
+    # self.preCarrying is the object that the agent is actuallly carrying at the last time step before executing the instruction
+    # self.initially_carried_world_obj is the object that the agent is assumed to be carrying before executing the instruction.
+    #   self.preCarrying                :   *       ,   X       ,   None
+    #   self.initially_carried_world_obj:   None    ,   X       ,   X
+    #   Expected Verification Result    :   Failure ,   Success ,   TBD
     def verify_action(self, action):
         # To keep track of what was carried at the last time step
         preCarrying = self.preCarrying
