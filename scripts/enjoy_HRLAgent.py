@@ -193,9 +193,9 @@ def keyDownCb(event):
         return
     # Enter: executes the agent's action by the current skill
     elif keyboard_input == "enter":
-        print(f"step: {step}, mission: {mission}")
         result = agent.act(obs)
         action = result['action'].item()
+        print(f"[Step {step}, {subgoal_idx}th Subgoal InProgress] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): {env.get_action_name(action)}")
     # unsupported key
     else:
         print(f"The entered key, {keyboard_input}, is not supported.")
