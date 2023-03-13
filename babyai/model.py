@@ -895,7 +895,6 @@ class FACModel(nn.Module, babyai.rl.ACModel):
         self.max_lang_model_input_len = max_lang_model_input_len # the maximum length of tokens the language model and tokenizer can handel
 
         self.num_of_actions = num_of_actions
-        self.max_lang_model_input_len = max_lang_model_input_len
 
         # Define actor's model
         self.actor = nn.Sequential(
