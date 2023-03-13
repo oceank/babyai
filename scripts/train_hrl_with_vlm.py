@@ -199,6 +199,11 @@ if args.model is None:
         max_lang_model_input_len=args.max_lang_model_input_len,)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model)
+    acmodel.vlm.max_history_window_vlm = args.max_history_window_vlm
+    acmodel.max_lang_model_input_len = args.max_lang_model_input_len
+    suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
+    args.model = args.model[:-17] + suffix
+
 
 print(f"===>    Saving the initial model if it is requested.")
 model_dir = os.path.join(utils.storage_dir(), "models", args.model)
