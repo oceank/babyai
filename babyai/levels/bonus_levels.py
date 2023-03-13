@@ -2927,6 +2927,37 @@ class Level_OpenBoxPickupLocal1Box1BallR2(Level_ActionObjDoorR2):
         desc = ObjDesc(hidden_obj.type, hidden_obj.color)
         self.instrs = PickupInstr(desc)
 
+class Level_OpenBoxPickupLocal1Box1BallFixColorR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        door_color = COLOR_NAMES[0]
+        door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        box_color = COLOR_NAMES[1]
+        box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+
+        ball_color = COLOR_NAMES[2]
+        ball, pos = self.add_object(i=1, j=0, kind="ball", color=ball_color)
+
+        hidden_obj = ball
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
 ### Three-Subgoal Task Group
 class Level_OpenGoToR2(Level_ActionObjDoorR2):
     '''

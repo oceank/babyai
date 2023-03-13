@@ -127,17 +127,19 @@ class LowlevelInstrSet:
                     subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
         return subgoal_instructions_by_skill
 
-    def subgoal_set_for_OpenBoxPickupLocal2Boxes(self, has_key=True):
+    def subgoal_set_for_OpenBoxPickupLocal2Boxes(self, has_key=True, fix_color=False):
         subgoal_instructions_by_skill = {}
         for skill_desc in SKILL_DESCRIPTIONS:
             subgoal_instructions_by_skill[skill_desc] = []
 
+        box_colors = [COLOR_NAMES[1]] if fix_color else COLOR_NAMES[:2]
+        ball_key_color = [COLOR_NAMES[2]] if fix_color else COLOR_NAMES[4:]
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
-                if (obj_type == "ball" or (has_key and obj_type == "key")) and (color in COLOR_NAMES[4:]):
+                if (obj_type == "ball" or (has_key and obj_type == "key")) and (color in ball_key_color):
                     subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
-                if obj_type == 'box' and color in COLOR_NAMES[:2]:
+                if obj_type == 'box' and color in box_colors:
                     subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
         return subgoal_instructions_by_skill
@@ -176,6 +178,8 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes()
         elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal2Boxes2Balls":
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False)
+        elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal1Box1BallFixColorR2":
+            return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False, fix_color=True)
         elif subgoal_set_type=="subgoal_set_for_UnblockPickupR3":
             return self.subgol_set_for_UnblockPickup()
         else:
