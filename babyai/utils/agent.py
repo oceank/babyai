@@ -944,9 +944,9 @@ class HRLAgent(ModelAgent):
             # Used by the reset_verifier() of DropNextInstr to reset the instruction's preCarrying
             self.current_subgoal_instr.initially_carried_world_obj = env.carrying
             # Update current_subgoal_desc with the acctually carried obj
-            obj_to_drop_desc = "the " + env.carrying.color + " " + env.carrying.type if env.carrying else ""
+            obj_to_drop_desc = "the " + env.carrying.color + " " + env.carrying.type + " " if env.carrying else ""
             obj_nextto_desc = "the " + self.current_subgoal_instr.desc.color + " " + self.current_subgoal_instr.desc.type
-            self.current_subgoal_desc = "drop " + obj_to_drop_desc + " next to " + obj_nextto_desc
+            self.current_subgoal_desc = "drop " + obj_to_drop_desc + "next to " + obj_nextto_desc
         if isinstance(self.current_subgoal_instr, DropNextNothingInstr): # ensure the agent carries an obj
             # Used by the reset_verifier() of DropNextNothingInstr to reset the instruction's preCarrying
             self.current_subgoal_instr.initially_carried_world_obj = env.carrying

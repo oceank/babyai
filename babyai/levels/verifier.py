@@ -641,7 +641,7 @@ class PickupInstr(ActionInstr):
         super().reset_verifier(env)
 
         # Object previously being carried
-        self.preCarrying = None
+        self.preCarrying = env.carrying #None
 
         # Identify set of possible matching objects in the environment
         self.desc.find_matching_objs(env)
