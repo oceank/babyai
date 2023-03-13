@@ -2774,6 +2774,159 @@ class Level_PutNextLocalR2(Level_ActionObjDoorR2):
             ObjDesc(obj_fixed.type, obj_fixed.color)
         )
 
+class Level_OpenBoxPickupLocal2BoxesR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        door_color = self._rand_elem(COLOR_NAMES[:2])
+        door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+
+        target_box = self._rand_elem(boxes)
+
+        objs = []
+        for color in COLOR_NAMES[4:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=color)
+            objs.append(ball)
+            key, pos = self.add_object(i=1, j=0, kind="key", color=color)
+            objs.append(key)
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_OpenBoxPickupLocal2Boxes2BallsR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        door_color = self._rand_elem(COLOR_NAMES[:2])
+        door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+
+        target_box = self._rand_elem(boxes)
+
+        objs = []
+        for color in COLOR_NAMES[4:]:
+            ball, pos = self.add_object(i=1, j=0, kind="ball", color=color)
+            objs.append(ball)
+
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_OpenBoxPickupLocal2Boxes1BallR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        door_color = self._rand_elem(COLOR_NAMES[:2])
+        door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        boxes = []
+        for box_color in COLOR_NAMES[:2]:
+            box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+            boxes.append(box)
+
+        target_box = self._rand_elem(boxes)
+
+        objs = []
+        color = self._rand_elem(COLOR_NAMES[4:])
+        ball, pos = self.add_object(i=1, j=0, kind="ball", color=color)
+        objs.append(ball)
+
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+class Level_OpenBoxPickupLocal1Box1BallR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+
+        door_color = self._rand_elem(COLOR_NAMES[:2])
+        door, _ = self.add_door(i=1, j=0, color=door_color, locked=False, is_open=False)
+
+        boxes = []
+        box_color = self._rand_elem(COLOR_NAMES[:2])
+        box, pos = self.add_object(i=1, j=0, kind="box", color=box_color)
+        boxes.append(box)
+
+        target_box = self._rand_elem(boxes)
+
+        objs = []
+        color = self._rand_elem(COLOR_NAMES[4:])
+        ball, pos = self.add_object(i=1, j=0, kind="ball", color=color)
+        objs.append(ball)
+
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=1, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
 ### Three-Subgoal Task Group
 class Level_OpenGoToR2(Level_ActionObjDoorR2):
     '''
