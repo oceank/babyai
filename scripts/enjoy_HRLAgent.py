@@ -36,6 +36,8 @@ parser.add_argument("--pause", type=float, default=0.1,
 parser.add_argument("--manual-mode", action="store_true", default=False,
                     help="Allows you to take control of the agent at any point of time")
 
+parser.add_argument("--max-lang-model-input-len", type=int, default=1024,
+                    help="maximum number of tokens in one sequence that the VLM's language model can handel (default: 1024)")
 parser.add_argument("--max-history-window-vlm", type=int, default=16,
                     help="maximum number of observations that can be hosted in the history for VLM (default: 16)")
 parser.add_argument("--skill-names-file", type=str, default="skill_model_names.txt",
@@ -53,6 +55,8 @@ parser.add_argument("--print-primitive-action-info", action="store_true", defaul
                     help="print out the information of each primitive action by a skill")
 parser.add_argument("--manuall-select-subgoal", action="store_true", default=False,
                     help="manually select a subgoal by an expert")
+
+debug = False
 
 args = parser.parse_args()
 
@@ -105,7 +109,8 @@ if args.model is None:
     acmodel, args.model = create_random_hrl_vlm_model(
         args.env, args.seed, num_high_level_actions,
         args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
-        abstract_history=False, only_attend_immediate_media=False)
+        abstract_history=False, only_attend_immediate_media=False,
+        max_lang_model_input_len=args.max_lang_model_input_len)
     utils.save_model(acmodel, args.model, model_version='current')
 
 max_num_episodes = 100
@@ -128,6 +133,7 @@ agent = utils.load_agent(
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
         model_version='current')
+agent.model.max_lang_model_input_len = args.max_lang_model_input_len
 agent.model.eval()
 with torch.no_grad():
     agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
@@ -167,7 +173,7 @@ def keyDownCb(event):
         keyboard_input = "enter"
 
     # Avoiding processing of observation by agent for wrong key clicks
-    if not ((keyboard_input in action_map) or (keyboard_input == "enter") or (keyboard_input in subgoal_indices_str)):
+    if not ((keyboard_input in action_map) or (keyboard_input == "enter") or (keyboard_input in subgoal_indices_str) or (keyboard_input == "a")):
         print(f"Keyboard input, {keyboard_input}, is not supported. Please try a valid one.")
         keyboard_input = ""
         return
@@ -189,6 +195,10 @@ def keyDownCb(event):
         with torch.no_grad():
             agent.propose_new_subgoal(env)
         print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
+        if debug:
+            history_token_seq = agent.decode_history_token_seq()
+            print(f"\t{history_token_seq}")
+            print(f"\tskill memory is cleared: {str((agent.current_subgoal_memory==0).all().item())}")
         keyboard_input = ""
         return
     # Enter: executes the agent's action by the current skill
@@ -204,6 +214,8 @@ def keyDownCb(event):
     # reset keyboard_input
     keyboard_input = ""
     obs, reward, done, _ = env.step(action)
+    step += 1 # a step of executing a primitive action
+    prev_step = step-1
 
     if result is not None and args.print_primitive_action_info:
         msg = ""
@@ -216,7 +228,7 @@ def keyDownCb(event):
             #    step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
         else:
             msg = "step: {}, mission: {}, action: {}".format(
-                step, obs['mission'], env.get_action_name(action))
+                prev_step, obs['mission'], env.get_action_name(action))
         print(msg)
 
     # Update the current_time_step and accumulate information to the agent's history
@@ -239,6 +251,9 @@ def keyDownCb(event):
 
         print(f"Reward: {reward}\n")
         env.render("human")
+        if debug:
+            agent.save_history_to_file(env)
+
         episode_num += 1
         env.seed(args.seed + episode_num)
         obs = env.reset()
@@ -259,7 +274,10 @@ def keyDownCb(event):
             with torch.no_grad():
                 agent.propose_new_subgoal(env)
             print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
-        step += 1
+            if debug:
+                history_token_seq = agent.decode_history_token_seq()
+                print(f"\t{history_token_seq}")
+                print(f"\tskill memory is cleared: {str((agent.current_subgoal_memory==0).all().item())}")
 
 
 
@@ -276,18 +294,20 @@ while True:
         obs, reward, done, _ = env.step(action)
 
         action_name = env.get_action_name(action)
+        step += 1 # a step of executing a primitive action
+        prev_step = step-1
 
         # agent.analyze_feedback(reward, done)
         if args.print_primitive_action_info:
-            msg = ""
+            msg = "\t"
             if 'dist' in result and 'value' in result:
                 dist, value = result['dist'], result['value']
                 dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
                 msg = "step: {}, mission: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
-                    step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
+                    prev_step, obs["mission"], env.get_action_name(action), dist_str, float(dist.entropy()), float(value))
             else:
                 msg = "step: {}, mission: {}, action: {}".format(
-                    step, obs['mission'], env.get_action_name(action))
+                    prev_step, obs['mission'], env.get_action_name(action))
             print(msg)
 
         # Update the current_time_step and accumulate information to the agent's history
@@ -312,6 +332,9 @@ while True:
             print(f"Reward: {reward}\n")
             env.render("human")
             all_rewards.append(reward)
+            if debug:
+                agent.save_history_to_file(env)
+
             episode_num += 1
             if episode_num == max_num_episodes:
                 all_rewards = np.array(all_rewards)
@@ -340,7 +363,10 @@ while True:
                     agent.propose_new_subgoal(env)
                     subgoal_idx += 1
                 print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
-            step += 1
+                if debug:
+                    history_token_seq = agent.decode_history_token_seq()
+                    print(f"\t{history_token_seq}")
+                    print(f"\tskill memory is cleared: {str((agent.current_subgoal_memory==0).all().item())}")
 
     if env.window.closed:
         break
