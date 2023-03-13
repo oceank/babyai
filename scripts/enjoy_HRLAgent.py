@@ -187,6 +187,10 @@ def keyDownCb(event):
         subgoal_idx += 1
         agent.setup_new_subgoal_and_skill(env, int(keyboard_input))
         print(f"[Step {step}, {subgoal_idx}th Subgoal Starts] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx})")
+        if debug:
+            history_token_seq = agent.decode_history_token_seq()
+            print(f"\t{history_token_seq}")
+            print(f"\tskill memory is cleared: {str((agent.current_subgoal_memory==0).all().item())}")
         keyboard_input = ""
         return
     elif keyboard_input == "a": # let the HRL agent selects the next subgoal
