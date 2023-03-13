@@ -740,6 +740,37 @@ class HRLAgent(ModelAgent):
     def get_goal(self):
         return self.goal
 
+    def decode_history_token_seq(self):
+        history_txt_seq = self.model.tokenizer.decode(self.history.token_seqs['input_ids'][0], skip_special_tokens=True)
+        return history_txt_seq
+
+    def save_history_to_file(self, env, history_folder=None):
+        import os
+        from PIL import Image
+
+        token_seq_filname = "token_seq.txt"
+        history_folder = history_folder if history_folder else f"history_at_step{self.current_time_step}"
+        path = os.path.join(utils.storage_dir(), "history", history_folder, token_seq_filname)
+        utils.create_folders_if_necessary(path)
+        history_txt_seq = self.decode_history_token_seq()
+        with open(path, 'w') as f:
+            f.write("history txt seq:\n")
+            f.write(f"\t{history_txt_seq}\n\n")
+            f.write("highlevel_time_steps:\n")
+            f.write(f"\t{self.history.highlevel_time_steps}\n\n")
+            f.write("highlevel_actions (subgoal idx):\n")
+            f.write(f"\t{self.history.highlevel_actions}\n\n")
+            f.write("current_time_step:\n")
+            f.write(f"\t{self.current_time_step}\n")
+
+        for step, obs in enumerate(self.history.vis_obss):
+            img_numpy = env.get_obs_render(obs['image'])
+            img = Image.fromarray(img_numpy, "RGB")
+            image_filename = f"{step}.jpeg"
+            image_path = os.path.join(utils.storage_dir(), "history", history_folder, image_filename)
+            img.save(image_path)
+
+
     def reset_history(self, goal, initial_obs):
         self.history = HRLAgentHistory()
         self.history.goal = goal
@@ -950,6 +981,7 @@ class HRLAgent(ModelAgent):
             end = start + new_subgoal_token_len
             self.history.token_seqs['input_ids'][b_idx, start:end] = new_subgoal_token_seq
             self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
+            self.history.token_seq_lens[b_idx] += new_subgoal_token_len
 
     '''
         Assume that neither the mission goal nor the current subgoal is done.
