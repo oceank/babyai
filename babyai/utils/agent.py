@@ -939,7 +939,9 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_status = 0 # 0: in progress, 1: success, 2: faliure
         ##  self.current_time_step has been updated before calling this function
         self.current_subgoal_start_time = self.current_time_step
-        self.current_subgoal_memory = torch.zeros(1, self.skill_memory_size, device=self.device)
+        #  reset the skill memory when the suggested highlevel action(subgoal) is different from the current one
+        if len(self.history.highlevel_actions)==0 or self.history.highlevel_actions[-1]!=highlevel_action:
+            self.current_subgoal_memory = torch.zeros(1, self.skill_memory_size, device=self.device)
         if isinstance(self.current_subgoal_instr, DropNextInstr): # ensure the agent carries an obj
             # Used by the reset_verifier() of DropNextInstr to reset the instruction's preCarrying
             self.current_subgoal_instr.initially_carried_world_obj = env.carrying
