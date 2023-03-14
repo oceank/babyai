@@ -174,7 +174,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
             status_msg = "{}: demo #{}, {:.3f} demos per second, {:.3f} seconds to go, 0sg({:.3f}), 1sg({:.3f}), >1sg({:.3f})".format(
                 args.env, len(demos) - 1, demos_per_second, to_go, csg0, csg1, csg2)
             logger.info(status_msg)
-            with open(demos_status_path, 'w') as f:
+            with open(demos_status_path, 'a') as f:
                 f.write(status_msg + "\n")
             checkpoint_time = now
 
