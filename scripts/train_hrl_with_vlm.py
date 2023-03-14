@@ -111,8 +111,8 @@ parser.add_argument("--generate-subgoal-desc", action="store_true", default=Fals
                     help="Use the VLM to generate a sentence as the subgoal.")
 
 # filename of demos that are used for the supervise training of the VLM-based ACModel
-parser.add_argument("--demos-name", default=None,
-                    help="demos filename (REQUIRED)")
+parser.add_argument("--demos-name", type=str, default="",
+                    help="demos filename (used for supervise training of the vlm)")
 parser.add_argument("--dataset-split-seed", type=int, default=1,
                     help="the seed used by train_test_split() to split the dataset"
                     )
@@ -122,7 +122,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
 
 demos_train = None
-if args.demos_name is not None:
+if args.demos_name!="":
     print(f"===>  Load demostrations from {args.demos_name}")
     demos_dir = os.path.join(utils.storage_dir(), "demos")
     demos_train_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_trainset.pkl")
@@ -157,7 +157,7 @@ for i in range(args.procs):
 
 skill_library = {}
 skill_memory_size = None
-if args.demos_name is None: # When demonstrations is provided for supervise training, do not load skills to save gpu memory
+if args.demos_name=="": # When demonstrations is provided for supervise training, do not load skills to save gpu memory
     print(f"===>    Loading skill library from {args.skill_names_file}.")
     skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
     skill_model_version = 'best'
