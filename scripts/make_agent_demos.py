@@ -77,7 +77,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
     utils.seed(seed)
 
     # Initialize the set of instructions for low-level tasks
-    lowlevel_instr_set = LowlevelInstrSet(subgoal_set_type)
+    lowlevel_instr_set = LowlevelInstrSet(subgoal_set_type=subgoal_set_type)
     # print(f"Total number of subgoals: {len(lowlevel_instr_set.all_subgoals)}")
 
     # Generate environment

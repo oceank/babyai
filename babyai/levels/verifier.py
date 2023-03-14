@@ -91,7 +91,7 @@ class LowlevelInstrSet:
             err_msg = f"Instruction type ({type(instr)}) of a non-supported low-level task."
             raise TypeError(err_msg)
 
-    def subgol_set_for_all(self):
+    def subgoal_set_for_all(self):
         subgoal_instructions_by_skill = {}
         for skill_desc in SKILL_DESCRIPTIONS:
             subgoal_instructions_by_skill[skill_desc] = []
@@ -171,7 +171,7 @@ class LowlevelInstrSet:
 
     def fetch_subgoal_set(self, subgoal_set_type):
         if subgoal_set_type=="subgoal_set_for_all":
-            return self.subgol_set_for_all()
+            return self.subgoal_set_for_all()
         elif subgoal_set_type=="subgoal_set_for_PutNextLocalBallBox":
             return self.subgoal_set_for_PutNextLocalBallBox()
         elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal2BoxesR3":
