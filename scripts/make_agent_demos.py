@@ -79,7 +79,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
     # Generate environment
     env = gym.make(args.env)
 
-    agent = utils.load_agent(env, args.model, args.demos, 'agent', args.argmax, args.env)
+    agent = utils.load_agent(env, args.model, argmax=args.argmax, demos_name=args.demos, demos_origin='agent', env_name=args.env, model_version="best")
     demos_path = utils.get_demos_path(args.demos, args.env, 'agent', valid)
     demos_status_path = demos_path[:-4] + "_status.txt"
     demos = []
