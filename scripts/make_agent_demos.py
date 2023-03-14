@@ -57,11 +57,14 @@ parser.add_argument("--job-script", type=str, default=None,
 parser.add_argument("--jobs", type=int, default=0,
                     help="Split generation in that many jobs")
 
+parser.add_argument("--subgoal-set-type", type=str, default="subgoal_set_for_all",
+                    help="a name indicates a list of subgoals")
+
 args = parser.parse_args()
 logger = logging.getLogger(__name__)
 
 # Set seed for all randomness sources
-
+subgoal_set_type=args.subgoal_set_type
 
 def print_demo_lengths(demos):
     num_frames_per_episode = [len(demo[2]) for demo in demos]
@@ -70,10 +73,11 @@ def print_demo_lengths(demos):
 
 
 def generate_demos(n_episodes, valid, seed, shift=0):
+    global subgoal_set_type
     utils.seed(seed)
 
     # Initialize the set of instructions for low-level tasks
-    lowlevel_instr_set = LowlevelInstrSet()
+    lowlevel_instr_set = LowlevelInstrSet(subgoal_set_type)
     # print(f"Total number of subgoals: {len(lowlevel_instr_set.all_subgoals)}")
 
     # Generate environment
