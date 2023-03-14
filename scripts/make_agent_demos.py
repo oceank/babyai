@@ -194,7 +194,7 @@ def generate_demos(n_episodes, valid, seed, shift=0):
     logger.info("{} demos saved".format(len(demos)))
     print_demo_lengths(demos[-100:])
 
-    with open(demos_status_path, 'w') as f:
+    with open(demos_status_path, 'a') as f:
         f.write(f"{args.env}: Collection Done!\n")
 
 def generate_demos_cluster():

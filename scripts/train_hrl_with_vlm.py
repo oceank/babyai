@@ -140,6 +140,8 @@ if args.demos_name is not None:
         utils.save_demos(demos_train, demos_train_set_path)
         utils.save_demos(demos_test, demos_test_set_path)
 
+    args.algo += "-supervise"
+
 # Generate environments
 print(f"===>  Generate {args.procs} instances of {args.env} environment")
 envs = []
@@ -167,8 +169,7 @@ if args.demos_name is None: # When demonstrations is provided for supervise trai
             skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
             skill['model'].to(device)
             skill_library[skill['description']] = skill
-            if skill['description'] == "DropNextTo":
-                skill['budget_steps'] *= 1.5 # DropNextTo is not good as Pickup and OpenBox, thus give its more budget steps
+
         # assume all skills use the same memory size for their LSTM componenet
         skill_memory_size = skill['model'].memory_size
     for skill_desc in skill_library:
@@ -196,7 +197,8 @@ if args.model is None:
         lang_model_name=lang_model_name,
         only_attend_immediate_media=args.only_attend_immediate_media,
         abstract_history=args.abstract_history,
-        max_lang_model_input_len=args.max_lang_model_input_len,)
+        max_lang_model_input_len=args.max_lang_model_input_len,
+        algo=args.algo)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model)
     acmodel.vlm.max_history_window_vlm = args.max_history_window_vlm
@@ -232,7 +234,7 @@ train_agent = utils.load_agent(
 # Define actor-critic algo
 print(f"===>    Initializing the actor-critic algorithm")
 reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
-if args.algo == "ppo":
+if "ppo" in args.algo: # "ppo", "ppo-supervise"
     # update model when a number of episodes pass
     if args.episode_based_training:
         algo = babyai.rl.PPOAlgoFlamingoHRLv1(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,

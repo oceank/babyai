@@ -82,10 +82,10 @@ def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
         skill_arch, skill_instr_arch, max_history_window_vlm, device,
         lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False,
-        max_lang_model_input_len=1024):
+        max_lang_model_input_len=1024, algo="ppo"):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
-    algo = "ppo"
+    algo = algo
     arch = "HRL-Flamingo"
     hist = "full" # full history
     if abstract_history:
