@@ -125,20 +125,27 @@ demos_train = None
 if args.demos_name!="":
     print(f"===>  Load demostrations from {args.demos_name}")
     demos_dir = os.path.join(utils.storage_dir(), "demos")
-    demos_train_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_trainset.pkl")
-    demos_test_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_testset.pkl")
-
-    if os.path.exists(demos_train_set_path) and os.path.exists(demos_test_set_path):
+    test_samples_ratio = 0.0 # episode-wise, default value is 0.2. Other values 0.0, 0.1, 0.5
+    if test_samples_ratio==0.0:
+        demos_train_set_path = os.path.join(demos_dir, args.demos_name+".pkl")
         demos_train = utils.load_demos(demos_train_set_path)
-        demos_test = utils.load_demos(demos_test_set_path)
-    else:
-        demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
-        demos = utils.load_demos(demos_path)
-        test_samples_ratio = 0.2 # episode-wise
-        total_demos = len(demos)
-        demos_train ,demos_test = train_test_split(demos, test_size=test_samples_ratio, random_state=args.dataset_split_seed)
-        utils.save_demos(demos_train, demos_train_set_path)
-        utils.save_demos(demos_test, demos_test_set_path)
+    elif test_samples_ratio>0.0 and test_samples_ratio<1.0:
+        demos_train_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_trainset.pkl")
+        demos_test_set_path = os.path.join(demos_dir, args.demos_name+f"_dss{args.dataset_split_seed}_testset.pkl")
+        if os.path.exists(demos_train_set_path) and os.path.exists(demos_test_set_path):
+            demos_train = utils.load_demos(demos_train_set_path)
+            demos_test = utils.load_demos(demos_test_set_path)
+        else:
+            demos_path = utils.get_demos_path(args.demos_name, args.env, origin=None, valid=False)
+            demos = utils.load_demos(demos_path)
+            total_demos = len(demos)
+            demos_train ,demos_test = train_test_split(demos, test_size=test_samples_ratio, random_state=args.dataset_split_seed)
+            utils.save_demos(demos_train, demos_train_set_path)
+            utils.save_demos(demos_test, demos_test_set_path)
+    else: # >1.0 or <0.0
+        err_msg = f"incorrect test_samples_ratio: {test_samples_ratio}"
+        print(err_msg)
+        raise ValueError(err_msg)
 
     args.algo += "-supervise"
 
