@@ -1145,6 +1145,12 @@ class BaseAlgoFlamingoHRLv1(ABC):
                         highlevel_action = np.random.choice(completed_subgoal_indices)
                     self.agent.history.highlevel_actions.append(highlevel_action)
                     self.agent.history.highlevel_time_steps.append(self.agent.current_subgoal_start_time)
+                else:
+                    # When the mission is done and no subgoal completion is recoginized,
+                    # then, remove the last elem in hla_hid_indices, which is used to fetch
+                    # the embedding of VLM for predicting the next subgoal. It is set inside
+                    # update_history_with_subgoal_status()
+                    self.agent.history.hla_hid_indices.pop()
 
                 # Update actions (high-level actions)
                 self.actions[ep_idx] = [torch.tensor(action, device=self.device) for action in self.agent.history.highlevel_actions]
