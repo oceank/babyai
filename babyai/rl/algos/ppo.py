@@ -1,3 +1,4 @@
+import gc
 import numpy
 import torch
 import torch.nn.functional as F
@@ -5,6 +6,7 @@ import torch.nn.functional as F
 
 from babyai.rl.algos.base import BaseAlgo, BaseAlgoFlamingoHRL, BaseAlgoFlamingoHRLIL, BaseAlgoFlamingoHRLv1
 from babyai import utils
+
 
 class PPOAlgo(BaseAlgo):
     """The class for the Proximal Policy Optimization algorithm
@@ -762,6 +764,7 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 # Clear 'image_embeds' and 'media_locations' in GPU to save memory
                 for ep_idx in episode_ids[batch_start:batch_after_end]:
                     ep = exps[ep_idx]
+                    history = ep.history[0]
                     history.token_seqs['image_embeds'] = None
                     history.token_seqs['media_locations'] = None
 
@@ -935,9 +938,11 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 #   make it ready for new image_embeds in the next epoch
                 for idx, ep_id in enumerate(episode_ids[batch_start:batch_after_end]):
                     ep = exps[ep_id]
+                    history = ep.history[0]
                     history.token_seqs['image_embeds'] = None
                     history.token_seqs['media_locations'] = None
-
+                gc.collect()
+                torch.cuda.empty_cache()
 
                 # Update log values
                 log_entropies.append(batch_entropy)

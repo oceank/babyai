@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import gc
 import torch
 from .. import utils
 from babyai.bot import Bot
@@ -906,6 +907,8 @@ class HRLAgent(ModelAgent):
         # Clear 'image_embeds' and 'media_locations' in GPU to save memory
         self.history.token_seqs['image_embeds'] = None
         self.history.token_seqs['media_locations'] = None
+        gc.collect()
+        torch.cuda.empty_cache()
 
         result_idx = self.history.hla_hid_indices[-1]
         dist = model_results['dist']
