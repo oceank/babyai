@@ -692,21 +692,22 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     num_of_subgoals = num_of_subgoals_per_episode[ep_idx]
                     # Load an episode of experience
                     ep = exps[ep_idx]
+                    history = ep.history[0]
                     value_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
                     entropy_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
                     log_prob_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
 
                     # Update 'image_embeds' and 'media_locations'
-                    ep.history[0].token_seqs['image_embeds'] = self.acmodel.img_encoder([ep.history[0].vis_obss])
+                    history.token_seqs['image_embeds'] = self.acmodel.img_encoder([history.vis_obss])
                     media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
-                        ep.history[0].token_seqs, device=self.device, only_media_locations=self.agent.only_attend_immediate_media)
-                    ep.history[0].token_seqs['media_locations'] = media_locations
-                    model_results = self.acmodel(ep.history[0])
+                        history.token_seqs, device=self.device, only_media_locations=self.agent.only_attend_immediate_media)
+                    history.token_seqs['media_locations'] = media_locations
+                    model_results = self.acmodel(history)
 
                     # The last subgoal is suggested based on the embedding of the hidden state
                     # at the index, hla_hid_indices[-2], since the history here recorders the
                     # entire history of the episode and thus hla_hid_indices[-1] is not used.
-                    hla_indices = ep.history[0].hla_hid_indices[:-1]
+                    hla_indices = history.hla_hid_indices[:-1]
                     dist = model_results['dist']
                     raw_value = model_results['value']
                     raw_entropy = dist.entropy()
@@ -761,8 +762,8 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 # Clear 'image_embeds' and 'media_locations' in GPU to save memory
                 for ep_idx in episode_ids[batch_start:batch_after_end]:
                     ep = exps[ep_idx]
-                    ep.history[0].token_seqs['image_embeds'] = None
-                    ep.history[0].token_seqs['media_locations'] = None
+                    history.token_seqs['image_embeds'] = None
+                    history.token_seqs['media_locations'] = None
 
                 # Update log values
                 log_entropies.append(batch_entropy)
@@ -852,8 +853,15 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     num_of_subgoals = num_of_subgoals_per_episode[ep_id]
                     # Create an episode of experience
                     ep = exps[ep_id]
+                    history = ep.history[0]
+                    # Update 'image_embeds' and 'media_locations'
+                    history.token_seqs['image_embeds'] = self.acmodel.img_encoder([history.vis_obss])
+                    # only_media_locations=True: only calculate media_locations
+                    media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
+                        history.token_seqs, device=self.device, only_media_locations=True)
+                    history.token_seqs['media_locations'] = media_locations
 
-                    model_results = self.acmodel(ep.history[0])
+                    model_results = self.acmodel(history)
                     dist = model_results['dist']
                     raw_value = model_results['value']
 
@@ -861,11 +869,11 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     raw_log_prob = dist.log_prob(torch.stack(ep.action, dim=0).unsqueeze(dim=1))
 
                     # currently support one process/one environment
-                    hla_indices = ep.history[0].hla_hid_indices[:-1]
+                    hla_indices = history.hla_hid_indices[:-1]
                     if self.demos:
-                        hla_indices = ep.history[0].hla_hid_indices
+                        hla_indices = history.hla_hid_indices
                         logits_subgoals[idx, :num_of_subgoals] = model_results['logits'][range(num_envs), hla_indices]
-                        labels_subgoals[idx, :num_of_subgoals] = torch.tensor(ep.history[0].highlevel_actions, dtype=int, device=self.device)
+                        labels_subgoals[idx, :num_of_subgoals] = torch.tensor(history.highlevel_actions, dtype=int, device=self.device)
                     value_subgoals[idx, :num_of_subgoals] = raw_value[range(num_envs), hla_indices]
                     entropy_subgoals[idx, :num_of_subgoals] = raw_entropy[range(num_envs), hla_indices]
                     log_prob_subgoals[idx, :num_of_subgoals] = raw_log_prob[range(num_of_subgoals), hla_indices]
@@ -927,8 +935,8 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 #   make it ready for new image_embeds in the next epoch
                 for idx, ep_id in enumerate(episode_ids[batch_start:batch_after_end]):
                     ep = exps[ep_id]
-                    ep.history[0].token_seqs['image_embeds'] = None
-                    ep.history[0].token_seqs['media_locations'] = None
+                    history.token_seqs['image_embeds'] = None
+                    history.token_seqs['media_locations'] = None
 
 
                 # Update log values

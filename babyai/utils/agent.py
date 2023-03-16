@@ -666,7 +666,7 @@ class HRLAgent(ModelAgent):
         current_time_step:
     """
     def __init__(
-        self, model_or_name, obss_preprocessor, argmax,
+        self, model_or_name, argmax,
         skill_library, skill_memory_size, subgoal_set,
         use_vlm=True, abstract_history=False, only_attend_immediate_media=True,
         model_version='current'):
@@ -675,11 +675,6 @@ class HRLAgent(ModelAgent):
         self.subgoal_set = subgoal_set
         self.model_version=model_version
 
-        # for the high-level policy module
-        if obss_preprocessor is None:
-            assert isinstance(model_or_name, str)
-            obss_preprocessor = utils.ObssPreprocessor(model_or_name, model_version=model_version)
-        self.obss_preprocessor = obss_preprocessor
         # 1: Load the 'recent' version of model from model name
         # 2: Load the 'best' versin of model from model
         # ToDo: add a model_version as a parameter to the constructor
@@ -709,9 +704,13 @@ class HRLAgent(ModelAgent):
         # Other data members
         self.debug = False
         self.device = next(self.model.parameters()).device
-        self.argmax = argmax
-        self.use_vlm = use_vlm
+        self.argmax = argmax # true: evaluation, false: sample an anction - training
+        if self.argmax:
+            self.model.eval()
+        else:
+            self.model.train()
 
+        self.use_vlm = use_vlm
         if self.use_vlm:
             # the model has tokenizer data member
             # subgoal[1]: an Instr instance for the subgoal
@@ -1031,14 +1030,14 @@ def load_agent(
     elif model_name == "SubGoalModelAgent":
         return SubGoalModelAgent(subgoals=subgoals, goal=goal, obss_preprocessor=None, argmax=argmax, model_version=model_version)
     elif model_name is not None:
-        obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space, model_version=model_version)
         if skill_library is not None:
             return HRLAgent(
-                model_name, obss_preprocessor, argmax,
+                model_name, argmax,
                 skill_library, skill_memory_size, subgoal_set,
                 use_vlm, abstract_history, only_attend_immediate_media,
                 model_version=model_version)
         else:
+            obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space, model_version=model_version)
             return ModelAgent(model_name, obss_preprocessor, argmax, model_version=model_version)
     elif demos_origin is not None or demos_name is not None:
         return DemoAgent(demos_name=demos_name, env_name=env_name, origin=demos_origin, check_subgoal_completion=check_subgoal_completion)

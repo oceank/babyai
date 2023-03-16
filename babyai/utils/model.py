@@ -129,6 +129,7 @@ def create_random_hrl_vlm_model(
     # first take your trained image encoder and wrap it in an adapter that returns the image embeddings
     # here we use the ViT from the vit-pytorch library
     print(f"[Setup] Create a visual encoder using ViT")
+    train_vis_encoder = True
     dim_img_embeds = dim_lang_embeds
     image_preproc = RawImagePreprocessor()
     visual_observation_bow_flat_dim=147
@@ -153,7 +154,8 @@ def create_random_hrl_vlm_model(
                                     # It should be smaller than the sequence length of the image tokens
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = max_history_window_vlm,#16, 8
-        only_attend_immediate_media = only_attend_immediate_media
+        only_attend_immediate_media = only_attend_immediate_media,
+        train_vis_encoder = train_vis_encoder
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")

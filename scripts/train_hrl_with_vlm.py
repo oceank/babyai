@@ -235,10 +235,10 @@ obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space
 # Initialize an instance of HRLAgent
 # 1.    env is used to create obss_preprocessor in load_agent()
 #       consider to remove it.
-# 2.    argmax for training agent is set to False; set it True for evaluation
+# 2.    argmax is set to False for training agent ; set it True for evaluation
 print(f"===>    Initializing the HRL agent")
 train_agent = utils.load_agent(
-        env=envs[0], model_name=args.model, argmax=False,
+        env=envs[0], model_name=acmodel, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True,
         abstract_history=args.abstract_history, only_attend_immediate_media=args.only_attend_immediate_media)
