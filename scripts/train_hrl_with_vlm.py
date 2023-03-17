@@ -169,25 +169,23 @@ for i in range(args.procs):
 
 skill_library = {}
 skill_memory_size = None
-if args.demos_name is None: # When demonstrations is provided for supervise training, do not load skills to save gpu memory
-    print(f"===>    Loading skill library from {args.skill_names_file}.")
-    skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
-    skill_model_version = 'best'
-    with open(skill_model_names_fp, 'r') as f:
-        skill_names = f.readlines()
-        skill_names = [skill_name.strip() for skill_name in skill_names]
 
-        for skill_model_name in skill_names:
-            skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
-            skill['model'].to(device)
-            skill_library[skill['description']] = skill
+print(f"===>    Loading skill library from {args.skill_names_file}.")
+skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
+skill_model_version = 'best'
+with open(skill_model_names_fp, 'r') as f:
+    skill_names = f.readlines()
+    skill_names = [skill_name.strip() for skill_name in skill_names]
 
-        # assume all skills use the same memory size for their LSTM componenet
-        skill_memory_size = skill['model'].memory_size
-    for skill_desc in skill_library:
-        print(skill_desc)
-else:
-    print(f"===>    Not loading skill library from {args.skill_names_file} since the demonstration for supervise training is provided.")
+    for skill_model_name in skill_names:
+        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
+        skill['model'].to(device)
+        skill_library[skill['description']] = skill
+
+    # assume all skills use the same memory size for their LSTM componenet
+    skill_memory_size = skill['model'].memory_size
+for skill_desc in skill_library:
+    print(skill_desc)
 
 # Initialize subgoal set
 print(f"===>    Initializing the predefined subgoal set")
