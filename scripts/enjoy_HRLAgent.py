@@ -128,13 +128,15 @@ obs = env.reset()
 mission = obs["mission"]
 
 # Define and reset the agent
+model_version='current'
 agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
-        model_version='current')
+        model_version=model_version)
 agent.model.max_lang_model_input_len = args.max_lang_model_input_len
-agent.model.eval()
+agent.set_model_mode(is_training=False)
+#agent.model.eval()
 with torch.no_grad():
     agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
