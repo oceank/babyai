@@ -901,7 +901,7 @@ class HRLAgent(ModelAgent):
     # * First update the history with image_embeds and media_locations, then apply the model (VLM) to get the high-level action
     # * Update self.current_subgoal, self.current_skill
     # * Append the token sequence of the new subgoal to self.token_seqs
-    def propose_new_subgoal(self, env, is_training=False):
+    def propose_new_subgoal(self, env):
 
         # Update 'image_embeds' and 'media_locations'
         self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
@@ -931,7 +931,7 @@ class HRLAgent(ModelAgent):
 
         self.setup_new_subgoal_and_skill(env, highlevel_action)
 
-        if is_training:
+        if not self.argmax: # the agent is in training mode
             raw_log_probs = dist.log_prob(action)
             log_prob = raw_log_probs[0, result_idx]
             value = model_results['value'][0, result_idx]

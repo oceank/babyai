@@ -1186,7 +1186,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
                     # Check if a subgoal is needed. If yes, generate a subgoal description.
                     if self.agent.need_new_subgoal():
                         with torch.no_grad():
-                            highlevel_action, log_prob, value = self.agent.propose_new_subgoal(cur_env, is_training=True)
+                            highlevel_action, log_prob, value = self.agent.propose_new_subgoal(cur_env)
                             episode_num_subgoals += 1
 
                     # Apply the corresponding skill to solve the subgoal until it is done

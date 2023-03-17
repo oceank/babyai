@@ -208,7 +208,7 @@ def batch_evaluate_hrl_agent(
             # Check if a subgoal is needed. If yes, generate a subgoal description.
             if agent.need_new_subgoal():
                 with torch.no_grad():
-                    agent.propose_new_subgoal(cur_env, is_training=False)
+                    agent.propose_new_subgoal(cur_env)
 
             # Apply the corresponding skill to solve the subgoal until it is done
             while (not done[0]) and agent.current_subgoal_status == 0:
