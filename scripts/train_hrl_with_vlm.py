@@ -237,7 +237,7 @@ obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space
 #       consider to remove it.
 # 2.    argmax is set to False for training agent ; set it True for evaluation
 print(f"===>    Initializing the HRL agent")
-train_agent = utils.load_agent(
+agent = utils.load_agent(
         env=envs[0], model_name=acmodel, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True,
@@ -252,7 +252,7 @@ if "ppo" in args.algo: # "ppo", "ppo-supervise"
         algo = babyai.rl.PPOAlgoFlamingoHRLv1(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                 args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor, reshape_reward,
-                                agent=train_agent, num_episodes=args.num_episodes,
+                                agent=agent, num_episodes=args.num_episodes,
                                 generate_subgoal_desc=args.generate_subgoal_desc,
                                 num_episodes_per_batch=args.num_episodes_per_batch,
                                 average_loss_by_subgoals=args.average_loss_by_subgoals,
@@ -378,26 +378,15 @@ while status['num_frames'] < args.frames:
         csv_writer.writerow(data)
 
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
-        #torch.save(acmodel, os.path.join(model_dir, "model.pt"))
         utils.save_model(acmodel, args.model, model_version='current')
 
     if algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos)):
         break
 
-    '''
+
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
-        with open(status_path, 'w') as dst:
-            json.dump(status, dst)
-            torch.save(acmodel, model_curr_path)
-
-        # Testing the model before saving
-        agent = utils.load_agent(
-            env=envs[0], model_name=args.model, argmax=False,
-            skill_library=skill_library, skill_memory_size=skill_memory_size,
-            subgoal_set=subgoal_set, use_vlm=True,)
-        # args.model may have historys of previous training. need to clear it before evaluation
-
-        agent.model.eval()
+        # Turn on the evaluation mode
+        agent.set_model_mode(is_training=False)
 
         logs = batch_evaluate_hrl_agent(
             agent,
@@ -405,11 +394,12 @@ while status['num_frames'] < args.frames:
             args.val_seed,
             args.val_episodes,
             pixel=use_pixel,
-            concurrent_episodes=args.val_concurrent_episodes,
-            use_subgoal=args.use_subgoal)
+            concurrent_episodes=args.val_concurrent_episodes)
 
-        agent.model.train()
+        # Reset the acmodel to training mode
+        agent.set_model_mode(is_training=True)
 
+        # Update the best model accordingly
         mean_return = np.mean(logs["return_per_episode"])
         success_rate = np.mean([1 if r > 0 else 0 for r in logs['return_per_episode']])
         save_model = False
@@ -420,10 +410,10 @@ while status['num_frames'] < args.frames:
             best_mean_return = mean_return
             save_model = True
         if save_model:
-            torch.save(acmodel, model_best_path)
+            utils.save_model(acmodel, args.model, model_version='best')
             logger.info("Return {: .2f}; best model is saved".format(mean_return))
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
-    '''
+
 
 print(f"Total time elapsed: {time.time() - total_start_time}")

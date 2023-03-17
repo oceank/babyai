@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import gym
 from gym_minigrid.wrappers import RGBImgPartialObsWrapper
@@ -160,11 +161,12 @@ use_subgoal=False):
     return logs
 
 # Returns the performance of the agent on the environment for a particular number of episodes.
-def batch_evaluate_hrl_agent(agent, env_name, seed, episodes, return_obss_actions=False, pixel=False, concurrent_episodes=256,
-use_subgoal=False):
-    pass
-    '''
-    num_envs = min(concurrent_episodes, episodes)
+def batch_evaluate_hrl_agent(
+    agent, env_name, seed, episodes,
+    return_obss_actions=False, pixel=False,
+    concurrent_episodes=256,
+):
+    num_envs = min(concurrent_episodes, episodes) # num of concurrentlly running envs
 
     envs = []
     for i in range(num_envs):
@@ -172,7 +174,7 @@ use_subgoal=False):
         if pixel:
             env = RGBImgPartialObsWrapper(env)
         envs.append(env)
-    env = ManyEnvs(envs)
+    env = ManyEnvs(envs) # env.envs is a list of envs. env.envs[0] is the first env
 
     logs = {
         "num_frames_per_episode": [],
@@ -186,49 +188,48 @@ use_subgoal=False):
         seeds = range(seed + i * num_envs, seed + (i + 1) * num_envs)
         env.seed(seeds)
 
-        many_obs = env.reset()
+        num_frames = np.zeros((num_envs,), dtype='int64')
+        returns = np.zeros((num_envs,))
+        already_done = np.zeros((num_envs,), dtype='bool')
+        done = np.zeros((num_envs,), dtype='bool')
+        if return_obss_actions:
+            obss = [[] for _ in range(num_envs)]
+            actions = [[] for _ in range(num_envs)]
 
-        goal = many_obs[0]['mission']
+        # Reset the agent's history and the current_time_step
+        many_obs = env.reset() # many_obs is a list of obs
+        goal = many_obs[0]['mission'] # the first env's goal
         initial_obs = many_obs[0]
         cur_env = env.envs[0]
         agent.on_reset(cur_env, goal, initial_obs, propose_first_subgoal=False)
 
-        cur_num_frames = 0
-        num_frames = np.zeros((num_envs,), dtype='int64')
-        returns = np.zeros((num_envs,))
-        already_done = np.zeros((num_envs,), dtype='bool')
-        if return_obss_actions:
-            obss = [[] for _ in range(num_envs)]
-            actions = [[] for _ in range(num_envs)]
+        # Whenever there is one episode not done, keep running
         while (num_frames == 0).any():
             # Check if a subgoal is needed. If yes, generate a subgoal description.
-            if agent.subgoal_needed():
-                agent.propose_subgoal(cur_env, is_training=False)
-                #episode_num_subgoals += 1
+            if agent.need_new_subgoal():
+                with torch.no_grad():
+                    agent.propose_new_subgoal(cur_env, is_training=False)
 
             # Apply the corresponding skill to solve the subgoal until it is done
             while (not done[0]) and agent.current_subgoal_status == 0:
                 result = agent.act(many_obs[0])
-                action = result['action'].item()
+                action = result['action'] #.item()
                 many_obs, reward, done, _ = env.step(action)
                 # Update the current_time_step and accumulate information to the agent's history
                 agent.current_time_step += 1
                 agent.accumulate_env_info_to_history(action, many_obs[0], reward, done)
                 # check if the current subgoal is done
                 agent.verify_current_subgoal(action)
-                if agent.current_subgoal_status != 0: # the current subgoal is done
+                if done[0] or agent.current_subgoal_status != 0: # the current subgoal is done
                     # subgoal_success = self.agent.current_subgoal_status == 1
                     # append the subgoal status to the agent's history
                     agent.update_history_with_subgoal_status()
 
-            
-
-            agent.analyze_feedback(reward, done)
+            #agent.analyze_feedback(reward, done)
             done = np.array(done)
             just_done = done & (~already_done)
             returns += reward * just_done
-            cur_num_frames += 1
-            num_frames[just_done] = cur_num_frames # when using subgoals, num_frames refers to the number of subgoals
+            num_frames[just_done] = agent.current_time_step
             already_done[done] = True
 
         logs["num_frames_per_episode"].extend(list(num_frames))
@@ -239,4 +240,3 @@ use_subgoal=False):
             logs["actions_per_episode"].extend(actions)
 
     return logs
-    '''

@@ -731,6 +731,14 @@ class HRLAgent(ModelAgent):
             self.subgoal_status_token_seqs.to(self.device)
             self.subgoal_status_token_lens = self.subgoal_status_token_seqs['attention_mask'].sum(1)
 
+    def set_model_mode(self, is_training=True):
+        if is_training:
+            self.model.train()
+            self.argmax = False # sample an action
+        else:
+            self.model.eval()
+            self.argmax = True # pick the action with the highest probability
+
     def set_debug_mode(self, debug):
         self.debug = debug
 
