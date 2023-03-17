@@ -319,7 +319,7 @@ logger.info("CUDA available: {}".format(torch.cuda.is_available()))
 logger.info(acmodel)
 
 # Train model
-
+agent.set_model_mode(is_training=True)
 total_start_time = time.time()
 best_success_rate = 0
 best_mean_return = 0
