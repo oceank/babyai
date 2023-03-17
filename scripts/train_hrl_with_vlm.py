@@ -378,13 +378,9 @@ while status['num_frames'] < args.frames:
         csv_writer.writerow(data)
 
     if args.save_interval > 0 and status['i'] % args.save_interval == 0:
+        # Save the current model
         utils.save_model(acmodel, args.model, model_version='current')
 
-    if algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos)):
-        break
-
-
-    if args.save_interval > 0 and status['i'] % args.save_interval == 0:
         # Turn on the evaluation mode
         agent.set_model_mode(is_training=False)
 
@@ -415,5 +411,8 @@ while status['num_frames'] < args.frames:
         else:
             logger.info("Return {: .2f}; not the best model; not saved".format(mean_return))
 
+    # Stop training when all demos have been used
+    if algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos)):
+        break
 
 print(f"Total time elapsed: {time.time() - total_start_time}")
