@@ -619,7 +619,7 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
     """The class for the Proximal Policy Optimization algorithm
     ([Schulman et al., 2015](https://arxiv.org/abs/1707.06347))."""
 
-    def __init__(self, envs, acmodel,
+    def __init__(self, envs,
                  discount=0.99, lr=7e-4, beta1=0.9, beta2=0.999, gae_lambda=0.95,
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5,
                  adam_eps=1e-5, clip_eps=0.2, epochs=4,
@@ -629,7 +629,7 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                  demos=None):
         num_episodes = num_episodes or 10
 
-        super().__init__(envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+        super().__init__(envs, discount, lr, gae_lambda, entropy_coef,
                          value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
                          agent=agent, num_episodes=num_episodes,
                          generate_subgoal_desc=generate_subgoal_desc,
@@ -638,7 +638,7 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
         self.clip_eps = clip_eps
         self.epochs = epochs
 
-        self.optimizer = torch.optim.Adam(self.acmodel.parameters(), lr, (beta1, beta2), eps=adam_eps)
+        self.optimizer = torch.optim.Adam(self.agent.model.parameters(), lr, (beta1, beta2), eps=adam_eps)
 
         self.num_episodes_per_batch=num_episodes_per_batch
         self.average_loss_by_subgoals=average_loss_by_subgoals
@@ -700,11 +700,11 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     log_prob_subgoals = torch.zeros(num_envs, num_of_subgoals, device=self.device)
 
                     # Update 'image_embeds' and 'media_locations'
-                    history.token_seqs['image_embeds'] = self.acmodel.img_encoder([history.vis_obss])
+                    history.token_seqs['image_embeds'] = self.agent.model.img_encoder([history.vis_obss])
                     media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
                         history.token_seqs, device=self.device, only_media_locations=self.agent.only_attend_immediate_media)
                     history.token_seqs['media_locations'] = media_locations
-                    model_results = self.acmodel(history)
+                    model_results = self.agent.model(history)
 
                     # The last subgoal is suggested based on the embedding of the hidden state
                     # at the index, hla_hid_indices[-2], since the history here recorders the
@@ -757,8 +757,8 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
 
                 self.optimizer.zero_grad()
                 batch_loss.backward()
-                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.acmodel.parameters() if p.grad is not None) ** 0.5
-                torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
+                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.agent.model.parameters() if p.grad is not None) ** 0.5
+                torch.nn.utils.clip_grad_norm_(self.agent.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
                 # Clear 'image_embeds' and 'media_locations' in GPU to save memory
@@ -839,7 +839,7 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
 
                 if self.demos:
                     skipped_label = -1
-                    logits_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, self.acmodel.num_of_actions, device=self.device)
+                    logits_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, self.agent.model.num_of_actions, device=self.device)
                     labels_subgoals = torch.ones(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, dtype=int, device=self.device)*(skipped_label)
                     loss_fct = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=skipped_label)
                 value_subgoals = torch.zeros(self.num_episodes_per_batch, max_num_of_subgoals_in_bacth, device=self.device)
@@ -858,13 +858,13 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                     ep = exps[ep_id]
                     history = ep.history[0]
                     # Update 'image_embeds' and 'media_locations'
-                    history.token_seqs['image_embeds'] = self.acmodel.img_encoder([history.vis_obss])
+                    history.token_seqs['image_embeds'] = self.agent.model.img_encoder([history.vis_obss])
                     # only_media_locations=True: only calculate media_locations
                     media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(
                         history.token_seqs, device=self.device, only_media_locations=True)
                     history.token_seqs['media_locations'] = media_locations
 
-                    model_results = self.acmodel(history)
+                    model_results = self.agent.model(history)
                     dist = model_results['dist']
                     raw_value = model_results['value']
 
@@ -929,8 +929,8 @@ class PPOAlgoFlamingoHRLv1(BaseAlgoFlamingoHRLv1):
                 # Update actor-critic
                 self.optimizer.zero_grad()
                 batch_loss.backward()
-                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.acmodel.parameters() if p.grad is not None) ** 0.5
-                torch.nn.utils.clip_grad_norm_(self.acmodel.parameters(), self.max_grad_norm)
+                grad_norm = sum(p.grad.data.norm(2) ** 2 for p in self.agent.model.parameters() if p.grad is not None) ** 0.5
+                torch.nn.utils.clip_grad_norm_(self.agent.model.parameters(), self.max_grad_norm)
                 self.optimizer.step()
 
                 # Clear 'image_embeds' and 'media_locations'

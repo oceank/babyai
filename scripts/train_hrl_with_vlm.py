@@ -247,7 +247,7 @@ reshape_reward = lambda _0, _1, reward, _2: args.reward_scale * reward
 if "ppo" in args.algo: # "ppo", "ppo-supervise"
     # update model when a number of episodes pass
     if args.episode_based_training:
-        algo = babyai.rl.PPOAlgoFlamingoHRLv1(envs, acmodel, args.discount, args.lr, args.beta1, args.beta2,
+        algo = babyai.rl.PPOAlgoFlamingoHRLv1(envs, args.discount, args.lr, args.beta1, args.beta2,
                                 args.gae_lambda, args.entropy_coef, args.value_loss_coef, args.max_grad_norm,
                                 args.optim_eps, args.clip_eps, args.ppo_epochs, obss_preprocessor, reshape_reward,
                                 agent=agent, num_episodes=args.num_episodes,

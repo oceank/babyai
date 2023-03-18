@@ -884,7 +884,7 @@ class BaseAlgoFlamingoHRLIL(ABC):
 class BaseAlgoFlamingoHRLv1(ABC):
     """The base class for RL algorithms."""
 
-    def __init__(self, envs, acmodel, discount, lr, gae_lambda, entropy_coef,
+    def __init__(self, envs, discount, lr, gae_lambda, entropy_coef,
                  value_loss_coef, max_grad_norm, preprocess_obss, reshape_reward,
                  agent, num_episodes, generate_subgoal_desc=False, demos=None):
         """
@@ -894,8 +894,6 @@ class BaseAlgoFlamingoHRLv1(ABC):
         ----------
         envs : list
             a list of environments that will be run in parallel
-        acmodel : torch.Module
-            the model
         num_frames_per_proc : int
             the number of frames collected by every process for an update
         discount : float
@@ -926,9 +924,6 @@ class BaseAlgoFlamingoHRLv1(ABC):
         # Store parameters
 
         self.env = ParallelEnv(envs)
-        self.acmodel = acmodel
-        # impact batchnorm or dropout layers
-        self.acmodel.train()
 
         self.discount = discount
         self.lr = lr
