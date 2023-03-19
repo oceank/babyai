@@ -758,7 +758,7 @@ class HRLAgent(ModelAgent):
 
         token_seq_filname = "token_seq.txt"
         history_folder = history_folder if history_folder else f"history_at_step{self.current_time_step}"
-        path = os.path.join(utils.storage_dir(), "history", history_folder, token_seq_filname)
+        path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder, token_seq_filname)
         utils.create_folders_if_necessary(path)
         history_txt_seq = self.decode_history_token_seq()
         with open(path, 'w') as f:
@@ -775,7 +775,7 @@ class HRLAgent(ModelAgent):
             img_numpy = env.get_obs_render(obs['image'])
             img = Image.fromarray(img_numpy, "RGB")
             image_filename = f"{step}.jpeg"
-            image_path = os.path.join(utils.storage_dir(), "history", history_folder, image_filename)
+            image_path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder, image_filename)
             img.save(image_path)
 
 
