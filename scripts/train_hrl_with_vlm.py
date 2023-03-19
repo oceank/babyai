@@ -208,7 +208,8 @@ if args.model is None:
         only_attend_immediate_media=args.only_attend_immediate_media,
         abstract_history=args.abstract_history,
         max_lang_model_input_len=args.max_lang_model_input_len,
-        algo=args.algo)
+        algo=args.algo,
+        args=args)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model, model_version="current")
     acmodel.vlm.max_history_window_vlm = args.max_history_window_vlm

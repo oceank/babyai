@@ -82,7 +82,7 @@ def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
         skill_arch, skill_instr_arch, max_history_window_vlm, device,
         lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False,
-        max_lang_model_input_len=1024, algo="ppo"):
+        max_lang_model_input_len=1024, algo="ppo", args=None):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = algo
@@ -105,6 +105,11 @@ def create_random_hrl_vlm_model(
         'seed': seed,
         'suffix': suffix}
     model_name = "{env}_{algo}_{arch}_SKILL_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+    if args is not None:
+        model_name_parts['wtype'] = args.episode_weight_type
+        model_name_parts['ecoef'] = args.entropy_coef
+        model_name_parts['clip']  = args.clip_eps
+        model_name = "{env}_{algo}_{arch}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
