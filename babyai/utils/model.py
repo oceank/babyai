@@ -109,7 +109,9 @@ def create_random_hrl_vlm_model(
         model_name_parts['wtype'] = args.episode_weight_type
         model_name_parts['ecoef'] = args.entropy_coef
         model_name_parts['clip']  = args.clip_eps
-        model_name = "{env}_{algo}_{arch}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+        model_name_parts['lr']  = args.lr
+        model_name_parts['bs']  = args.skill_budget_steps
+        model_name = "{env}_{algo}_{arch}_lr{lr}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
