@@ -106,6 +106,9 @@ parser.add_argument("--episode-weight-type", type=int, default=0,
 parser.add_argument("--save-initial-model", action="store_true", default=False,
                     help="save the initial model to see if the model is learning anything at all")
 
+parser.add_argument("--lr-scheduling", action="store_true", default=False,
+                    help="Learning Rate Annealing.")
+
 # Use VLM to generate a sentece as the subgoal
 parser.add_argument("--generate-subgoal-desc", action="store_true", default=False,
                     help="Use the VLM to generate a sentence as the subgoal.")
@@ -282,7 +285,8 @@ header = (["update", "episodes", "frames", "FPS", "duration"]
           + ["num_frames_" + stat for stat in ['mean', 'std', 'min', 'max']]
           + ["entropy", "value", "policy_loss", "value_loss", "loss", "grad_norm"]
           + ["high_level_actions"]
-          + ["num_high_level_actions_" + stat for stat in ['mean', 'std', 'min', 'max']])
+          + ["num_high_level_actions_" + stat for stat in ['mean', 'std', 'min', 'max']]
+          + ["learing_rate"])
 
 if args.tb:
     from tensorboardX import SummaryWriter
@@ -319,19 +323,31 @@ logger.info(args)
 logger.info("CUDA available: {}".format(torch.cuda.is_available()))
 logger.info(acmodel)
 
+def update_linear_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr):
+    """Decreases the learning rate linearly"""
+    lr = initial_lr - (initial_lr * (current_consumed_frames / float(max_num_frames)))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+    return lr
+
 # Train model
 agent.set_model_mode(is_training=True)
 total_start_time = time.time()
 best_success_rate = 0
 best_mean_return = 0
 test_env_name = args.env
+lr = args.lr
 # 'num_frames':
 # low-level task: number of primitive steps
 # high-level task: number of steps to complete some subgoals
 #                  num_primitive_steps is the num_frames in low-leve task case
 while status['num_frames'] < args.frames:
-    # Update parameters
 
+    # Update learning rate
+    if args.lr_scheduling:
+        lr = update_linear_schedule(algo.optimizer, status['num_frames'], args.frames, args.lr)
+
+    # Update parameters
     update_start_time = time.time()
     logs = algo.update_parameters()
     update_end_time = time.time()
@@ -342,7 +358,6 @@ while status['num_frames'] < args.frames:
     status['num_high_level_actions'] += logs['num_high_level_actions']
 
     # Print logs
-
     if (status['i'] % args.log_interval == 0) or (algo.demos and (algo.batch_start_epsode_idx_in_demos>=len(algo.demos))):
         total_ellapsed_time = int(time.time() - total_start_time)
         duration = datetime.timedelta(seconds=total_ellapsed_time)
@@ -361,12 +376,13 @@ while status['num_frames'] < args.frames:
                 *num_frames_per_episode.values(),
                 logs["entropy"], logs["value"], logs["policy_loss"], logs["value_loss"],
                 logs["loss"], logs["grad_norm"],
-                status["num_high_level_actions"], *num_high_level_actions_per_episode.values()]
+                status["num_high_level_actions"], *num_high_level_actions_per_episode.values(),
+                lr]
 
         format_str = ("U {} | E {} | F {:06} | FPS {:04.0f} | D {} | R:xsmM {: .2f} {: .2f} {: .2f} {: .2f} | "
                       "S {:.2f} | F:xsmM {:.1f} {:.1f} {} {} | H {:.3f} | V {:.3f} | "
                       "pL {: .3f} | vL {:.3f} | L {:.3f} | gN {:.3f} | "
-                      "hla {:06} | hla:xsmM {:.1f} {:.1f} {} {} | ")
+                      "hla {:06} | hla:xsmM {:.1f} {:.1f} {} {} | lr {:.8e} |")
 
         logger.info(format_str.format(*data))
         if args.tb:
