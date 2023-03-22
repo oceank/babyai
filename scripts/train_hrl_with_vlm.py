@@ -108,6 +108,8 @@ parser.add_argument("--save-initial-model", action="store_true", default=False,
 
 parser.add_argument("--lr-scheduling", action="store_true", default=False,
                     help="Learning Rate Annealing.")
+parser.add_argument("--scheduling-type", type=str, default="poly2",
+                    help="type of learning rate scheduling. e.g., 'poly2' indicates a polynomial scheduling with power 2 on decay rate")
 
 # Use VLM to generate a sentece as the subgoal
 parser.add_argument("--generate-subgoal-desc", action="store_true", default=False,
@@ -323,9 +325,18 @@ logger.info(args)
 logger.info("CUDA available: {}".format(torch.cuda.is_available()))
 logger.info(acmodel)
 
-def update_linear_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr):
+def update_learning_rate(optimizer, current_consumed_frames, max_num_frames, initial_lr, scheduling_type):
+    if "poly" in scheduling_type:
+        power = int(scheduling_type[4:])
+        lr = update_poly_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr, power=power)
+    else: # fixed learning rate
+        lr = initial_lr
+    return lr
+
+def update_poly_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr, power=1):
     """Decreases the learning rate linearly"""
-    lr = initial_lr - (initial_lr * (current_consumed_frames / float(max_num_frames)))
+    decay_rate = 1.0 - (current_consumed_frames / float(max_num_frames))
+    lr = initial_lr * (decay_rate**power)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr
@@ -345,7 +356,7 @@ while status['num_frames'] < args.frames:
 
     # Update learning rate
     if args.lr_scheduling:
-        lr = update_linear_schedule(algo.optimizer, status['num_frames'], args.frames, args.lr)
+        lr = update_learning_rate(algo.optimizer, status['num_frames'], args.frames, args.lr, args.scheduling_type)
 
     # Update parameters
     update_start_time = time.time()
