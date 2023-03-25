@@ -617,6 +617,11 @@ def add_image_padding_and_preprocess(all_obss, image_preproc):
 
     return image_tensors
 
+# Assume the format of history sequence:
+#   <mission>|image|[Start]<sg1>|image…image|[Failure]<sg2>|image…image|...
+# If it is changed to:
+#   |image|<mission>[Start]|image…image|<sg1>[Failure]...
+# The calculation of label_masks and instance_weights are not correct, thus in this case, this function should be called with only_media_locations=True
 def cal_media_loc_labels_token_weights(vlm_input, device=torch.device("cpu"), only_media_locations=False):
     batch_size = vlm_input['input_ids'].shape[0]
     input_token_seq_lens = vlm_input['attention_mask'].sum(dim=-1)

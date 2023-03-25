@@ -783,7 +783,8 @@ class HRLAgent(ModelAgent):
         self.history = HRLAgentHistory()
         self.history.goal = goal
         self.history.token_seqs = self.model.tokenizer(
-                self.history.goal+"|image|[start]",
+                "|image|"+self.history.goal+"[start]",
+                #self.history.goal+"|image|[start]",
                 return_tensors="pt",
                 padding="max_length",
                 max_length=self.model.max_lang_model_input_len)
@@ -856,6 +857,32 @@ class HRLAgent(ModelAgent):
         self.history.token_seqs['input_ids'][0, start:end] = subgoal_vis_token_seqs['input_ids'][0, :subgoal_vis_token_len]
         self.history.token_seqs['attention_mask'][0, start:end] = 1
         self.history.token_seq_lens[0] += subgoal_vis_token_len
+
+        ## append the token sequence of the new subgoal to self.token_seqs
+        if self.use_vlm:
+            highlevel_action = self.history.highlevel_actions[-1]
+            b_idx = 0
+            start = self.history.token_seq_lens[b_idx]
+
+            if isinstance(self.current_subgoal_instr, DropNextInstr):
+                if isinstance(self.current_subgoal_desc, str):
+                    current_subgoal_desc = [self.current_subgoal_desc]
+                else: # a list of strings, each of which is subgoal for one of parallel envs
+                    current_subgoal_desc = [subgoal for subgoal in self.current_subgoal_desc]
+                subgoals_token_seqs = self.model.tokenizer(current_subgoal_desc, return_tensors="pt", padding=True)
+                subgoals_token_seqs.to(self.device)
+                subgoals_token_lens = subgoals_token_seqs['attention_mask'].sum(1)
+
+                new_subgoal_token_len = subgoals_token_lens[b_idx]
+                new_subgoal_token_seq = subgoals_token_seqs['input_ids'][b_idx, :new_subgoal_token_len]
+            else:
+                new_subgoal_token_len = self.subgoals_token_lens[highlevel_action]
+                new_subgoal_token_seq = self.subgoals_token_seqs['input_ids'][highlevel_action, :new_subgoal_token_len]
+
+            end = start + new_subgoal_token_len
+            self.history.token_seqs['input_ids'][b_idx, start:end] = new_subgoal_token_seq
+            self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
+            self.history.token_seq_lens[b_idx] += new_subgoal_token_len
 
         # Append the subgoal's status to the history
         start = self.history.token_seq_lens[0]
@@ -970,6 +997,7 @@ class HRLAgent(ModelAgent):
         # update the history
         self.history.highlevel_time_steps.append(self.current_subgoal_start_time)
         self.history.highlevel_actions.append(highlevel_action)
+        '''
         ## append the token sequence of the new subgoal to self.token_seqs
         if self.use_vlm:
             b_idx = 0
@@ -994,7 +1022,7 @@ class HRLAgent(ModelAgent):
             self.history.token_seqs['input_ids'][b_idx, start:end] = new_subgoal_token_seq
             self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
             self.history.token_seq_lens[b_idx] += new_subgoal_token_len
-
+        '''
     '''
         Assume that neither the mission goal nor the current subgoal is done.
         Functionality: apply the current skill to suggest the next primitive action for solving the current subgoal
