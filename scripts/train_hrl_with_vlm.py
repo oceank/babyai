@@ -333,10 +333,10 @@ def update_learning_rate(optimizer, current_consumed_frames, max_num_frames, ini
         lr = initial_lr
     return lr
 
-def update_poly_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr, power=1):
+def update_poly_schedule(optimizer, current_consumed_frames, max_num_frames, initial_lr, power=1, min_lr=1e-5):
     """Decreases the learning rate linearly"""
     decay_rate = 1.0 - (current_consumed_frames / float(max_num_frames))
-    lr = initial_lr * (decay_rate**power)
+    lr = min_lr + (initial_lr-min_lr) * (decay_rate**power)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     return lr
