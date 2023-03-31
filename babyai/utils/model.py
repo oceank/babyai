@@ -8,6 +8,7 @@ from ..levels.verifier import SKILL_DESCRIPTIONS
 from babyai.utils.format import RawImagePreprocessor
 from babyai.utils.vlm import BowImageConvEncoder
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from peft import get_peft_model, LoraConfig, TaskType
 from FlamingoGPT2.model import FlamingoGPT2
 from babyai.model import FACModel
 
@@ -82,7 +83,7 @@ def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
         skill_arch, skill_instr_arch, max_history_window_vlm, device,
         lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False,
-        max_lang_model_input_len=1024, algo="ppo", args=None):
+        max_lang_model_input_len=1024, algo="ppo", args=None, fine_tune_lang_model=None):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = algo
@@ -144,6 +145,16 @@ def create_random_hrl_vlm_model(
         visual_observation_bow_flat_dim, dim_img_embeds,
         image_preproc,
         device)
+
+    # For fine-tuning the language model
+    if fine_tune_lang_model == "LoRA":
+        peft_config = LoraConfig(
+            task_type=TaskType.TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
+        )
+        peft_model = get_peft_model(lang_model, peft_config)
+        print(f"[Setup] Fine-tune the language model,{lang_model_name}, using LoRA")
+        peft_model.print_trainable_parameters()
+        lang_model = peft_model.base_model.model
 
     print(f"[Setup] Create a Flamingo Model")
     vlm = FlamingoGPT2(

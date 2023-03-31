@@ -122,11 +122,16 @@ parser.add_argument("--dataset-split-seed", type=int, default=1,
                     help="the seed used by train_test_split() to split the dataset"
                     )
 
+parser.add_argument("--fine-tune-lang-model", default=None,
+                    help="Fine-tunning approach for the language part of the VLM.")
+
 args = parser.parse_args()
 if args.demos_name == 'None':
     args.demos_name = None
 if args.model == 'None':
     args.model = None
+if args.fine_tune_lang_model == 'None':
+    args.fine_tune_lang_model = None
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
@@ -214,7 +219,8 @@ if args.model is None:
         abstract_history=args.abstract_history,
         max_lang_model_input_len=args.max_lang_model_input_len,
         algo=args.algo,
-        args=args)
+        args=args,
+        fine_tune_lang_model = args.fine_tune_lang_model)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model, model_version="current")
     acmodel.vlm.max_history_window_vlm = args.max_history_window_vlm
