@@ -71,7 +71,7 @@ def load_skill(skill_model_name, budget_steps, model_version):
     skill["budget_steps"] = budget_steps
     skill['description'] = retrieve_skill_description(skill_model_name)
     return skill
-        
+
 '''
     Inputs:
         lang_model_name
@@ -111,7 +111,9 @@ def create_random_hrl_vlm_model(
         model_name_parts['clip']  = args.clip_eps
         model_name_parts['lr']  = args.lr
         model_name_parts['bs']  = args.skill_budget_steps
-        model_name = "{env}_{algo}_{arch}_lr{lr}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+        model_name_parts['lrst'] = args.lr_scheduling_type
+        model_name_parts['lang_model_train_mode'] = args.lang_model_train_mode
+        model_name = "{env}_{algo}_{arch}_Lang{lang_model_train_mode}_lr{lr}s{lrst}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
@@ -133,9 +135,7 @@ def create_random_hrl_vlm_model(
     dim_lang_embeds = lang_model_config.n_embd
     depth = lang_model_config.n_layer
 
-    # first take your trained image encoder and wrap it in an adapter that returns the image embeddings
-    # here we use the ViT from the vit-pytorch library
-    print(f"[Setup] Create a visual encoder using ViT")
+    print(f"[Setup] Create a visual encoder")
     train_vis_encoder = True
     dim_img_embeds = dim_lang_embeds
     image_preproc = RawImagePreprocessor()
@@ -162,7 +162,8 @@ def create_random_hrl_vlm_model(
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = max_history_window_vlm,#16, 8
         only_attend_immediate_media = only_attend_immediate_media,
-        train_vis_encoder = train_vis_encoder
+        train_vis_encoder = train_vis_encoder,
+        lang_model_train_mode = args.lang_model_train_mode
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")
@@ -171,4 +172,32 @@ def create_random_hrl_vlm_model(
         vlm=vlm, tokenizer=tokenizer, img_encoder=img_encoder,
         max_lang_model_input_len=max_lang_model_input_len,)
 
+    print_details = True
+    print_trainable_parameters(acmodel, print_details=print_details)
+
     return acmodel, model_name
+
+def print_trainable_parameters(model, print_details=False):
+    """
+    Prints the number of trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    if print_details:
+        trainable_params_dict = {}
+    for name, param in model.named_parameters():
+        num_params = param.numel()
+        # if using DS Zero 3 and the weights are initialized empty
+        if num_params == 0 and hasattr(param, "ds_numel"):
+            num_params = param.ds_numel
+
+        all_param += num_params
+        if param.requires_grad:
+            trainable_params += num_params
+            if print_details:
+                trainable_params_dict[name] = num_params
+    msg = f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    print(msg)
+    if print_details:
+        for name, num_params in trainable_params_dict.items():
+            print(f"{name}: {num_params}")

@@ -24,7 +24,7 @@ from babyai.evaluate import batch_evaluate
 from babyai.utils.agent import ModelAgent, SkillModelAgent
 from gym_minigrid.wrappers import RGBImgPartialObsWrapper
 
-from babyai.utils.model import create_random_hrl_vlm_model, load_model, save_model
+from babyai.utils.model import load_model, save_model
 from babyai.levels.verifier import LowlevelInstrSet, SKILL_DESCRIPTIONS, SKILL_DESC_INDICES
 from sklearn.model_selection import train_test_split
 import pandas as pd
