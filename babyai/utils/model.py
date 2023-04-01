@@ -82,7 +82,7 @@ def create_random_hrl_vlm_model(
         env_name, seed, num_high_level_actions,
         skill_arch, skill_instr_arch, max_history_window_vlm, device,
         lang_model_name="distilgpt2", only_attend_immediate_media=True, abstract_history=False,
-        max_lang_model_input_len=1024, algo="ppo", args=None, fine_tune_lang_model=None):
+        max_lang_model_input_len=1024, algo="ppo", args=None):
     # Define model name
     suffix = datetime.datetime.now().strftime("%y-%m-%d-%H-%M-%S")
     algo = algo
@@ -111,7 +111,9 @@ def create_random_hrl_vlm_model(
         model_name_parts['clip']  = args.clip_eps
         model_name_parts['lr']  = args.lr
         model_name_parts['bs']  = args.skill_budget_steps
-        model_name = "{env}_{algo}_{arch}_lr{lr}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+        model_name_parts['lrst'] = args.lr_scheduling_type
+        model_name_parts['lang_model_train_mode'] = args.lang_model_train_mode
+        model_name = "{env}_{algo}_{arch}_Lang{lang_model_train_mode}_lr{lr}s{lrst}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
@@ -143,15 +145,6 @@ def create_random_hrl_vlm_model(
         image_preproc,
         device)
 
-    # For fine-tuning the language model
-    if fine_tune_lang_model == "Random":
-        print(f"[Setup] Train the language model,{lang_model_name}, using random weights")
-        lang_model.init_weights()
-    elif fine_tune_lang_model == "Adapter":
-        adapted_gpt2 = GPT2_Aadapter(lang_model)
-        lang_model = adapted_gpt2.get_model()
-    # else: "All" or None. Nothing needs to be done for the language model in these cases
-
     print(f"[Setup] Create a Flamingo Model")
     vlm = FlamingoGPT2(
         lang_model=lang_model,       # pretrained language model GPT2 with a language header
@@ -170,7 +163,7 @@ def create_random_hrl_vlm_model(
         perceiver_num_time_embeds = max_history_window_vlm,#16, 8
         only_attend_immediate_media = only_attend_immediate_media,
         train_vis_encoder = train_vis_encoder,
-        fine_tune_lang_model = fine_tune_lang_model
+        lang_model_train_mode = args.lang_model_train_mode
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")

@@ -106,10 +106,8 @@ parser.add_argument("--episode-weight-type", type=int, default=0,
 parser.add_argument("--save-initial-model", action="store_true", default=False,
                     help="save the initial model to see if the model is learning anything at all")
 
-parser.add_argument("--lr-scheduling", action="store_true", default=False,
-                    help="Learning Rate Annealing.")
-parser.add_argument("--scheduling-type", type=str, default="poly2",
-                    help="type of learning rate scheduling. e.g., 'poly2' indicates a polynomial scheduling with power 2 on decay rate")
+parser.add_argument("--lr-scheduling-type", type=str, default="poly1",
+                    help="type of learning rate scheduling. e.g., 'poly1' indicates a polynomial scheduling with power 1 on decay rate. That is, linear scheduling. 'fixed' indicates a fixed learning rate.")
 
 # Use VLM to generate a sentece as the subgoal
 parser.add_argument("--generate-subgoal-desc", action="store_true", default=False,
@@ -122,16 +120,14 @@ parser.add_argument("--dataset-split-seed", type=int, default=1,
                     help="the seed used by train_test_split() to split the dataset"
                     )
 
-parser.add_argument("--fine-tune-lang-model", default=None,
-                    help="Fine-tunning approach for the language part of the VLM.")
+parser.add_argument("--lang-model-train-mode", type=str, default='Frozen',
+                    help="Train mode for the language part of the Flamingo model. The default mode is to frozen the pretrained language part.")
 
 args = parser.parse_args()
 if args.demos_name == 'None':
     args.demos_name = None
 if args.model == 'None':
     args.model = None
-if args.fine_tune_lang_model == 'None':
-    args.fine_tune_lang_model = None
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
@@ -219,8 +215,7 @@ if args.model is None:
         abstract_history=args.abstract_history,
         max_lang_model_input_len=args.max_lang_model_input_len,
         algo=args.algo,
-        args=args,
-        fine_tune_lang_model = args.fine_tune_lang_model)
+        args=args,)
 elif isinstance(args.model, str):
     acmodel = load_model(args.model, model_version="current")
     acmodel.vlm.max_history_window_vlm = args.max_history_window_vlm
@@ -361,8 +356,7 @@ lr = args.lr
 while status['num_frames'] < args.frames:
 
     # Update learning rate
-    if args.lr_scheduling:
-        lr = update_learning_rate(algo.optimizer, status['num_frames'], args.frames, args.lr, args.scheduling_type)
+    lr = update_learning_rate(algo.optimizer, status['num_frames'], args.frames, args.lr, args.lr_scheduling_type)
 
     # Update parameters
     update_start_time = time.time()
