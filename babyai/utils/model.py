@@ -133,9 +133,7 @@ def create_random_hrl_vlm_model(
     dim_lang_embeds = lang_model_config.n_embd
     depth = lang_model_config.n_layer
 
-    # first take your trained image encoder and wrap it in an adapter that returns the image embeddings
-    # here we use the ViT from the vit-pytorch library
-    print(f"[Setup] Create a visual encoder using ViT")
+    print(f"[Setup] Create a visual encoder")
     train_vis_encoder = True
     dim_img_embeds = dim_lang_embeds
     image_preproc = RawImagePreprocessor()
