@@ -8,8 +8,7 @@ from ..levels.verifier import SKILL_DESCRIPTIONS
 from babyai.utils.format import RawImagePreprocessor
 from babyai.utils.vlm import BowImageConvEncoder
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
-from peft import get_peft_model, LoraConfig, TaskType
-from FlamingoGPT2.model import FlamingoGPT2
+from FlamingoGPT2.model import FlamingoGPT2, GPT2_Aadapter
 from babyai.model import FACModel
 
 def get_model_dir(model_name):
@@ -72,7 +71,7 @@ def load_skill(skill_model_name, budget_steps, model_version):
     skill["budget_steps"] = budget_steps
     skill['description'] = retrieve_skill_description(skill_model_name)
     return skill
-        
+
 '''
     Inputs:
         lang_model_name
@@ -147,14 +146,13 @@ def create_random_hrl_vlm_model(
         device)
 
     # For fine-tuning the language model
-    if fine_tune_lang_model == "LoRA":
-        peft_config = LoraConfig(
-            task_type=TaskType.TaskType.CAUSAL_LM, inference_mode=False, r=8, lora_alpha=32, lora_dropout=0.1
-        )
-        peft_model = get_peft_model(lang_model, peft_config)
-        print(f"[Setup] Fine-tune the language model,{lang_model_name}, using LoRA")
-        peft_model.print_trainable_parameters()
-        lang_model = peft_model.base_model.model
+    if fine_tune_lang_model == "Random":
+        print(f"[Setup] Train the language model,{lang_model_name}, using random weights")
+        lang_model.init_weights()
+    elif fine_tune_lang_model == "Adapter":
+        adapted_gpt2 = GPT2_Aadapter(lang_model)
+        lang_model = adapted_gpt2.get_model()
+    # else: "All" or None. Nothing needs to be done for the language model in these cases
 
     print(f"[Setup] Create a Flamingo Model")
     vlm = FlamingoGPT2(
@@ -173,7 +171,8 @@ def create_random_hrl_vlm_model(
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = max_history_window_vlm,#16, 8
         only_attend_immediate_media = only_attend_immediate_media,
-        train_vis_encoder = train_vis_encoder
+        train_vis_encoder = train_vis_encoder,
+        fine_tune_lang_model = fine_tune_lang_model
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")
@@ -182,4 +181,32 @@ def create_random_hrl_vlm_model(
         vlm=vlm, tokenizer=tokenizer, img_encoder=img_encoder,
         max_lang_model_input_len=max_lang_model_input_len,)
 
+    print_details = True
+    print_trainable_parameters(acmodel, print_details=print_details)
+
     return acmodel, model_name
+
+def print_trainable_parameters(model, print_details=False):
+    """
+    Prints the number of trainable parameters in the model.
+    """
+    trainable_params = 0
+    all_param = 0
+    if print_details:
+        trainable_params_dict = {}
+    for name, param in model.named_parameters():
+        num_params = param.numel()
+        # if using DS Zero 3 and the weights are initialized empty
+        if num_params == 0 and hasattr(param, "ds_numel"):
+            num_params = param.ds_numel
+
+        all_param += num_params
+        if param.requires_grad:
+            trainable_params += num_params
+            if print_details:
+                trainable_params_dict[name] = num_params
+    msg = f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    print(msg)
+    if print_details:
+        for name, num_params in trainable_params_dict.items():
+            print(f"{name}: {num_params}")
