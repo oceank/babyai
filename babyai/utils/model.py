@@ -8,7 +8,7 @@ from ..levels.verifier import SKILL_DESCRIPTIONS
 from babyai.utils.format import RawImagePreprocessor
 from babyai.utils.vlm import BowImageConvEncoder
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
-from FlamingoGPT2.model import FlamingoGPT2, GPT2_Aadapter
+from FlamingoGPT2.model import FlamingoGPT2
 from babyai.model import FACModel
 
 def get_model_dir(model_name):
