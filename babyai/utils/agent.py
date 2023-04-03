@@ -6,7 +6,7 @@ from babyai.bot import Bot
 from babyai.model import ACModel
 from babyai.levels.verifier import DropNextInstr, DropNextNothingInstr, ObjDesc
 from random import Random
-
+from gym_minigrid.minigrid import MiniGridEnv
 
 class Agent(ABC):
     """An abstraction of the behavior of an agent. The agent is able:
@@ -615,7 +615,8 @@ class HRLAgentHistory():
         subgoals_status=None,
         lowlevel_actions=None,
         rewards=None,
-        dones=None,):
+        dones=None,
+        lowlevel_time_steps=None,):
         self.goal = goal
         self.token_seqs = token_seqs
         self.vis_obss = vis_obss
@@ -626,6 +627,7 @@ class HRLAgentHistory():
         self.lowlevel_actions = lowlevel_actions
         self.rewards = rewards
         self.dones = dones
+        self.lowlevel_time_steps = lowlevel_time_steps
         self.token_seq_lens = None
         if self.token_seqs is not None:
             self.token_seq_lens = self.token_seqs['attention_mask'].sum(dim=1)
@@ -771,7 +773,7 @@ class HRLAgent(ModelAgent):
             f.write("current_time_step:\n")
             f.write(f"\t{self.current_time_step}\n")
 
-        for step, obs in enumerate(self.history.vis_obss):
+        for step, obs in enumerate(self.history.vis_obss): # use the lowlevel time step stored in self.history
             img_numpy = env.get_obs_render(obs['image'])
             img = Image.fromarray(img_numpy, "RGB")
             image_filename = f"{step}.jpeg"
@@ -803,6 +805,7 @@ class HRLAgent(ModelAgent):
         self.history.lowlevel_actions = []
         self.history.rewards = []
         self.history.dones = []
+        self.history.lowlevel_time_steps = []
 
     def reset_subgoal_and_skill(self):
         self.current_skill = None
@@ -813,6 +816,7 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_status = None # 0: in progress, 1: success, 2: faliure
         self.current_subgoal_start_time = None
         self.current_subgoal_memory = None
+        self.current_subgoal_history = None
 
     def on_reset(self, env, goal, initial_obs, propose_first_subgoal=True):
         self.current_time_step = 0
@@ -829,72 +833,6 @@ class HRLAgent(ModelAgent):
     # Assume the mission is not done yet.
     def need_new_subgoal(self):
         return self.current_time_step==0 or self.current_subgoal_status!=0
-
-    # Accumulate envrionment information to the history immediately after the agent takes an action
-    def accumulate_env_info_to_history(self, action, obs, reward, done):
-        self.history.vis_obss.append(obs)
-        self.history.lowlevel_actions.append(action)
-        self.history.rewards.append(reward)
-        self.history.dones.append(done)
-
-    # Call this function when the current subgoal is done
-    # Assume information given by the environment has been accumulated in the history after an action.
-    # Call this function after verifing the current subgoal and before proposing a new subgoal.
-    def update_history_with_subgoal_status(self):
-        # Append the subgoal's visual obs seq ('|image...image|') to the history
-        vis_obs_seq_str ="|" + "image"*(self.current_time_step-self.current_subgoal_start_time) + "|"
-        subgoal_vis_token_seqs = self.model.tokenizer(
-                vis_obs_seq_str,
-                return_tensors="pt",
-                padding=True,)
-        subgoal_vis_token_seqs.to(self.device)
-        subgoal_vis_token_lens = subgoal_vis_token_seqs['attention_mask'].sum(1)
-        start = self.history.token_seq_lens[0]
-        subgoal_vis_token_len = subgoal_vis_token_lens[0]
-        end = start + subgoal_vis_token_len
-
-        self.history.token_seqs['input_ids'][0, start:end] = subgoal_vis_token_seqs['input_ids'][0, :subgoal_vis_token_len]
-        self.history.token_seqs['attention_mask'][0, start:end] = 1
-        self.history.token_seq_lens[0] += subgoal_vis_token_len
-
-        # Append the subgoal's status to the history
-        start = self.history.token_seq_lens[0]
-        subgoal_status_token_len = self.subgoal_status_token_lens[self.current_subgoal_status]
-        end = start + subgoal_status_token_len
-
-        self.history.token_seqs['input_ids'][0, start:end] = self.subgoal_status_token_seqs['input_ids'][self.current_subgoal_status, :subgoal_status_token_len]
-        self.history.token_seqs['attention_mask'][0, start:end] = 1
-        self.history.token_seq_lens[0] += subgoal_status_token_len
-
-        # Append auxiliary information to the history. hla_hid_index corresponds the index of token, ']', in the last subgoal's status.
-        self.history.hla_hid_indices.append(self.history.token_seq_lens[0]-1)
-        self.history.subgoals_status.append(self.current_subgoal_status)
-
-        '''
-        # Update 'image_embeds' and 'media_locations'
-        with torch.no_grad():
-            self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
-        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
-        self.history.token_seqs['media_locations'] = media_locations
-        '''
-
-    # Verify if the current subgoal is done
-    #   the current subgoal is completed
-    #   the budget steps are used up
-    # Assume that the 'action' has been taken by the agent
-    # Need to set the new hld_hid_index when the current subgoal is done after calling this funciton.
-    def verify_current_subgoal(self, action):
-        budget_steps_used_up = (self.current_time_step - self.current_subgoal_start_time) >= self.current_skill['budget_steps']
-        status = self.current_subgoal_instr.verify(action)
-        is_successful = (status == 'success')
-        if is_successful:
-            self.current_subgoal_status = 1
-            if self.debug:
-                print(f"===> [Subgoal Completed] {self.current_subgoal_desc}")
-        elif budget_steps_used_up:
-            self.current_subgoal_status = 2
-            if self.debug:
-                print(f"===> [Subgoal Failed] {self.current_subgoal_desc}")
 
     # Note: currently support only one environment instance
     # Based on the current self.history, decide the next highlevel action (the next subgoal and proper skill for it)
@@ -966,6 +904,7 @@ class HRLAgent(ModelAgent):
 
         skill_desc = self.current_subgoal[2]
         self.current_skill = self.skill_library[skill_desc]
+        self.current_subgoal_history = {'vis_obss': [], 'lowlevel_actions': [], 'rewards': [], 'dones': [], 'lowlevel_time_steps':[]}
 
         # update the history
         self.history.highlevel_time_steps.append(self.current_subgoal_start_time)
@@ -994,6 +933,130 @@ class HRLAgent(ModelAgent):
             self.history.token_seqs['input_ids'][b_idx, start:end] = new_subgoal_token_seq
             self.history.token_seqs['attention_mask'][b_idx, start:end] = 1
             self.history.token_seq_lens[b_idx] += new_subgoal_token_len
+
+    # Accumulate envrionment information to the history immediately after the agent takes an action
+    def accumulate_env_info_to_subgoal_history(self, action, obs, reward, done):
+        self.current_subgoal_history['vis_obss'].append(obs)
+        self.current_subgoal_history['lowlevel_actions'].append(action)
+        self.current_subgoal_history['rewards'].append(reward)
+        self.current_subgoal_history['dones'].append(done)
+        self.current_subgoal_history['lowlevel_time_steps'].append(self.current_time_step)
+
+    # Verify if the current subgoal is done
+    #   the current subgoal is completed
+    #   the budget steps are used up
+    # Assume that the 'action' has been taken by the agent
+    # Need to set the new hld_hid_index when the current subgoal is done after calling this funciton.
+    def verify_current_subgoal(self, action):
+        budget_steps_used_up = (self.current_time_step - self.current_subgoal_start_time) >= self.current_skill['budget_steps']
+        status = self.current_subgoal_instr.verify(action)
+        is_successful = (status == 'success')
+        if is_successful:
+            self.current_subgoal_status = 1
+            if self.debug:
+                print(f"===> [Subgoal Completed] {self.current_subgoal_desc}")
+        elif budget_steps_used_up:
+            self.current_subgoal_status = 2
+            if self.debug:
+                print(f"===> [Subgoal Failed] {self.current_subgoal_desc}")
+
+    # Summarize the history of the current subgoal if the agent does not uses a full history
+    # Abstract History Type 1: rule-based summarization. Current Implementation.
+    #   The agent uses the following rules to select the visual observation into the summarize the history of the current subgoal:
+    #   • Rule 1: the ending observation of a subgoal. (the starting observation of the subgoal is picked in the summarization of the previous subgoal)
+    #   • Rule 2: the agent literally interacts with an object.
+    #   • Rule 3: the agent reaches an object. That is, the object is in front of the agent.
+    #   • Rule 4: the agent sees a new object in the current observation when compared to the last one.
+    #   The implementation dedicates to BabyAI planform with a partial observation of a grid of 7x7 where each cell is a tuple of (object, color, state).
+    #   
+    # Abstract History Type 2: model-based video summarization. ToDo
+    #
+    # The agent sits in the index (3, 6) in the partial observation (7X7 grid) and faces left. So, the front cell of the agent is at (3,5) (4rd row, 6th column).
+    def summarize_subgoal_history(self):
+        self.current_subgoal_history # update it
+        selected_obss_indices = []
+        cur_action_idx = 0
+        while cur_action_idx < (len(self.current_subgoal_history['lowlevel_actions'])-1):
+            cur_obs = self.current_subgoal_history['vis_obss'][cur_action_idx]
+            lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx]
+            # Select the observation if the current action is 'forward' and a new object is found
+            if lowlevel_action == MiniGridEnv.Actions.forward:
+                if (cur_obs['image'][:, 0, 0] >= 2).any(): # the agent sees a new object. 0: unsee, 1: empty
+                    selected_obss_indices.append(cur_action_idx)
+            # For other primitive actions, select observations before and after the current action
+            else:
+                if (cur_action_idx != 0) and (len(selected_obss_indices)!=0 and (selected_obss_indices[-1] != cur_action_idx-1)):
+                    selected_obss_indices.append(cur_action_idx-1)
+                selected_obss_indices.append(cur_action_idx)
+            cur_action_idx += 1
+        # Select the last observation
+        selected_obss_indices.append(cur_action_idx)
+
+        # update the history of the current subgoal
+        self.current_subgoal_history['vis_obss'] = [self.current_subgoal_history['vis_obss'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['lowlevel_actions'] = [self.current_subgoal_history['lowlevel_actions'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['rewards'] = [self.current_subgoal_history['rewards'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['dones'] = [self.current_subgoal_history['dones'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['lowlevel_time_steps'] = [self.current_subgoal_history['lowlevel_time_steps'][idx] for idx in selected_obss_indices]
+
+    # Update the history with the current subgoal's (summarized) history
+    def update_history(self):
+        if self.abstract_history:
+            self.summarize_subgoal_history()
+
+        self.history.vis_obss.extend(self.current_subgoal_history['vis_obss'])
+        self.history.lowlevel_actions.extend(self.current_subgoal_history['lowlevel_actions'])
+        self.history.rewards.extend(self.current_subgoal_history['rewards'])
+        self.history.dones.extend(self.current_subgoal_history['dones'])
+        self.history.lowlevel_time_steps.extend(self.current_subgoal_history['lowlevel_time_steps'])
+
+
+    # Call this function when the current subgoal is done
+    # Assume information given by the environment has been accumulated in the history of the current subgoal.
+    # Call this function after verifing the current subgoal and before proposing a new subgoal.
+    def update_history_with_subgoal_status(self):
+        # Update the agent's history with the current subgoal's history
+        self.update_history()
+
+        # Append the subgoal's visual obs seq ('|image...image|') to the history
+        num_vis_obss = len(self.current_subgoal_history['vis_obss'])
+        vis_obs_seq_str ="|" + "image"*(num_vis_obss) + "|"
+        subgoal_vis_token_seqs = self.model.tokenizer(
+                vis_obs_seq_str,
+                return_tensors="pt",
+                padding=True,)
+        subgoal_vis_token_seqs.to(self.device)
+        subgoal_vis_token_lens = subgoal_vis_token_seqs['attention_mask'].sum(1)
+        start = self.history.token_seq_lens[0]
+        subgoal_vis_token_len = subgoal_vis_token_lens[0]
+        end = start + subgoal_vis_token_len
+
+        self.history.token_seqs['input_ids'][0, start:end] = subgoal_vis_token_seqs['input_ids'][0, :subgoal_vis_token_len]
+        self.history.token_seqs['attention_mask'][0, start:end] = 1
+        self.history.token_seq_lens[0] += subgoal_vis_token_len
+
+        # Append the subgoal's status to the history
+        start = self.history.token_seq_lens[0]
+        subgoal_status_token_len = self.subgoal_status_token_lens[self.current_subgoal_status]
+        end = start + subgoal_status_token_len
+
+        self.history.token_seqs['input_ids'][0, start:end] = self.subgoal_status_token_seqs['input_ids'][self.current_subgoal_status, :subgoal_status_token_len]
+        self.history.token_seqs['attention_mask'][0, start:end] = 1
+        self.history.token_seq_lens[0] += subgoal_status_token_len
+
+        # Append auxiliary information to the history. hla_hid_index corresponds the index of token, ']', in the last subgoal's status.
+        self.history.hla_hid_indices.append(self.history.token_seq_lens[0]-1)
+        self.history.subgoals_status.append(self.current_subgoal_status)
+
+        '''
+        # Update 'image_embeds' and 'media_locations'
+        with torch.no_grad():
+            self.history.token_seqs['image_embeds'] = self.model.img_encoder([self.history.vis_obss])
+        media_locations, label_masks, instance_weights = utils.vlm.cal_media_loc_labels_token_weights(self.history.token_seqs, device=self.device, only_media_locations=True)
+        self.history.token_seqs['media_locations'] = media_locations
+        '''
+
+
 
     '''
         Assume that neither the mission goal nor the current subgoal is done.

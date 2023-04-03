@@ -1194,7 +1194,7 @@ class BaseAlgoFlamingoHRLv1(ABC):
                         obs, reward, done, _ = cur_env.step(action)
                         # Update the current_time_step and accumulate information to the agent's history
                         self.agent.current_time_step += 1
-                        self.agent.accumulate_env_info_to_history(action, obs, reward, done)
+                        self.agent.accumulate_env_info_to_subgoal_history(action, obs, reward, done)
                         # check if the current subgoal is done
                         self.agent.verify_current_subgoal(action)
                         if done or (self.agent.current_subgoal_status != 0): # the current subgoal is done

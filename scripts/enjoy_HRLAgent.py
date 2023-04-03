@@ -134,6 +134,7 @@ agent = utils.load_agent(
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
         model_version=model_version)
+#agent.abstract_history = True # Testing abstract history
 agent.model.max_lang_model_input_len = args.max_lang_model_input_len
 agent.set_model_mode(is_training=False)
 #agent.model.eval()
@@ -239,7 +240,7 @@ def keyDownCb(event):
 
     # Update the current_time_step and accumulate information to the agent's history
     agent.current_time_step += 1
-    agent.accumulate_env_info_to_history(action, obs, reward, done)
+    agent.accumulate_env_info_to_subgoal_history(action, obs, reward, done)
 
     # check if the current subgoal is done
     agent.verify_current_subgoal(action)
@@ -318,7 +319,7 @@ while True:
 
         # Update the current_time_step and accumulate information to the agent's history
         agent.current_time_step += 1
-        agent.accumulate_env_info_to_history(action, obs, reward, done)
+        agent.accumulate_env_info_to_subgoal_history(action, obs, reward, done)
 
         # check if the current subgoal is done
         agent.verify_current_subgoal(action)

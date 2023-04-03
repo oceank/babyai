@@ -217,7 +217,7 @@ def batch_evaluate_hrl_agent(
                 many_obs, reward, done, _ = env.step(action)
                 # Update the current_time_step and accumulate information to the agent's history
                 agent.current_time_step += 1
-                agent.accumulate_env_info_to_history(action, many_obs[0], reward, done)
+                agent.accumulate_env_info_to_subgoal_history(action, many_obs[0], reward, done)
                 # check if the current subgoal is done
                 agent.verify_current_subgoal(action)
                 if done[0] or agent.current_subgoal_status != 0: # the current subgoal is done
