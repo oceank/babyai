@@ -77,6 +77,7 @@ class InstructionsPreprocessor(object):
 class RawImagePreprocessor(object):
     def __call__(self, obss, device=None):
         images = numpy.array([obs["image"] for obs in obss])
+        images = images.transpose(0, 2, 1, 3) # Shape: (batch, row, col, cell_dim) for fixing the diagnally-mirriored observation returned by the env
         images = torch.tensor(images, device=device, dtype=torch.float)
         return images
 
