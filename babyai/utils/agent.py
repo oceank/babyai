@@ -772,8 +772,13 @@ class HRLAgent(ModelAgent):
             f.write(f"\t{self.history.highlevel_actions}\n\n")
             f.write("current_time_step:\n")
             f.write(f"\t{self.current_time_step}\n")
+            f.write(f"lowlevel_time_steps:\n")
+            f.write(f"\t{self.history.lowlevel_time_steps}\n\n")
+            f.write(f"lowlevel_actions:\n")
+            f.write(f"\t{self.history.lowlevel_actions}\n\n")
 
-        for step, obs in enumerate(self.history.vis_obss): # use the lowlevel time step stored in self.history
+        for idx, obs in enumerate(self.history.vis_obss): # use the lowlevel time step stored in self.history
+            step = self.history.lowlevel_time_steps[idx]
             img_numpy = env.get_obs_render(obs['image'])
             img = Image.fromarray(img_numpy, "RGB")
             image_filename = f"{step}.jpeg"
