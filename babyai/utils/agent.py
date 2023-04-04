@@ -671,7 +671,7 @@ class HRLAgent(ModelAgent):
     def __init__(
         self, model_or_name, argmax,
         skill_library, skill_memory_size, subgoal_set,
-        use_vlm=True, abstract_history=False, history_summarization_reduce_repeatedly_ineffective_actions=True, only_attend_immediate_media=True,
+        use_vlm=True, abstract_history=False, only_attend_immediate_media=True, history_summarization_reduce_repeatedly_ineffective_actions=True,
         model_version='current'):
 
         self.skill_library = skill_library
@@ -755,13 +755,16 @@ class HRLAgent(ModelAgent):
         history_txt_seq = self.model.tokenizer.decode(self.history.token_seqs['input_ids'][0], skip_special_tokens=True)
         return history_txt_seq
 
-    def save_history_to_file(self, env, seed=None, history_folder=None):
+    def save_history_to_file(self, env, seed=None, history_folder=None, debug_hist_sum=None):
         import os
         from PIL import Image
 
+        env_name = env.spec.id
         token_seq_filname = "token_seq.txt"
         history_folder = history_folder if history_folder else f"{('seed'+str(seed)+'_') if seed is not None else ''}history_at_step{self.current_time_step}"
-        path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder,  token_seq_filname)
+        if debug_hist_sum is not None:
+            history_folder += f"_{debug_hist_sum}"
+        path = os.path.join(utils.storage_dir(), "history", env_name, history_folder,  token_seq_filname)
         utils.create_folders_if_necessary(path)
         history_txt_seq = self.decode_history_token_seq()
         with open(path, 'w') as f:
@@ -786,6 +789,40 @@ class HRLAgent(ModelAgent):
             image_path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder, image_filename)
             img.save(image_path)
 
+    def save_subgoal_history_to_file(self, env, seed=None, history_folder=None, debug_hist_sum=None):
+        import os
+        from PIL import Image
+
+        env_name = env.spec.id
+        token_seq_filname = "token_seq.txt"
+        history_folder = history_folder if history_folder else f"{('seed'+str(seed)+'_') if seed is not None else ''}history_at_step{self.current_time_step}"
+        if debug_hist_sum is not None:
+            history_folder += f"_{debug_hist_sum}"
+        path = os.path.join(utils.storage_dir(), "history", env_name, history_folder,  token_seq_filname)
+        utils.create_folders_if_necessary(path)
+        history_txt_seq = self.decode_history_token_seq()
+        with open(path, 'w') as f:
+            f.write("history txt seq:\n")
+            f.write(f"\t{history_txt_seq}\n\n")
+            f.write("highlevel_time_steps:\n")
+            f.write(f"\t{self.history.highlevel_time_steps}\n\n")
+            f.write("highlevel_actions (subgoal idx):\n")
+            f.write(f"\t{self.history.highlevel_actions}\n\n")
+            f.write("current_time_step:\n")
+            f.write(f"\t{self.current_time_step}\n")
+            f.write(f"lowlevel_time_steps:\n")
+            f.write(f"\t{self.history.lowlevel_time_steps}\n\n")
+            f.write(f"history: lowlevel_actions:\n")
+            f.write(f"\t{self.history.lowlevel_actions}\n\n")
+            f.write(f"subgoal history: lowlevel_actions:\n")
+            f.write(f"\t{self.current_subgoal_history['lowlevel_actions']}\n\n")
+
+        for step, obs in zip(self.current_subgoal_history['lowlevel_time_steps'], self.current_subgoal_history['vis_obss']):
+            img_numpy = env.get_obs_render(obs['image'])
+            img = Image.fromarray(img_numpy, "RGB")
+            image_filename = f"{step}.jpeg"
+            image_path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder, image_filename)
+            img.save(image_path)
 
     def reset_history(self, goal, initial_obs):
         self.history = HRLAgentHistory()
@@ -982,86 +1019,120 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_history # update it
         selected_obss_indices = []
         cur_action_idx = 0
+
+        # Process observations between the first and the last observations for the subgoal.
         while cur_action_idx < (len(self.current_subgoal_history['lowlevel_actions'])-1):
+            # cur_obs is the currently resulting observation after performing the lowlevel_action
             cur_obs = self.current_subgoal_history['vis_obss'][cur_action_idx]
             lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx]
-            # Select the observation if the current action is 'forward' and a new object is found
-            if lowlevel_action == MiniGridEnv.Actions.forward:
-                # the agent faces an object or sees a new object. 0: unsee, 1: empty
-                if  (cur_obs['image'][3, 5, 0]!=1) or ((cur_obs['image'][:, 0, 0] >= 2).any()):
+
+            stuck_at_repeated_ineffective_action = False
+            if self.history_summarization_reduce_repeatedly_ineffective_actions and cur_action_idx>=1:
+                pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-1]
+                pre_lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]
+                if cur_action_idx>=2:
+                    pre_pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-2]
+
+                # Reduce repeatedly ineffective actions
+                is_stuck_and_rotating = False
+                repeated_approach_front_obj = False
+                repeated_pickup_nothing = False
+                repeated_pickup_when_carrying = False
+                repeated_drop_nothing = False
+                repeated_drop_when_facing_obj = False
+                repeated_toggle_wrong_obj = False
+                repeated_toggle_door_without_matched_key = False
+
+                # do not select the resulting observation if the action is left or right and the agent had taken three consecutive actions of the same type.
+                # the agent was stuck and rotating at the location
+                if lowlevel_action == MiniGridEnv.Actions.left or lowlevel_action == MiniGridEnv.Actions.right:
+                    if cur_action_idx>=3:
+                        is_stuck_and_rotating = (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]) and \
+                                                (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-2]) and \
+                                                (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-3])
+
+                # do not select the resulting observation if the agent approaches the front object repeatedly using the 'forward' action.
+                if lowlevel_action == MiniGridEnv.Actions.forward:
+                    if cur_action_idx>=2:
+                        forward_ineffective = (pre_obs['image'][3, 5, 0]!=1) # the front cell of the agent was empty in the previsous observation
+                        # already ineffective forward action before the current one
+                        pre_forward_ineffective = (pre_pre_obs['image'][3, 5, 0]!=1) and (pre_lowlevel_action==MiniGridEnv.Actions.forward)
+                        # the agent did not move in two steps of performing 'forward' actions
+                        repeated_approach_front_obj = pre_forward_ineffective and forward_ineffective
+
+                if lowlevel_action == MiniGridEnv.Actions.pickup:
+                    # The agent performs a pickup action repeatedly while the front cell is an empty cell, a door or a wall
+                    if cur_obs['image'][3, 6, 0]==1: # the cell where the agent sits is empty: the agent performed a pickup action but is not carrying any object.
+                        repeated_pickup_nothing = (pre_lowlevel_action==MiniGridEnv.Actions.pickup) and (pre_obs['image'][3,6,0]==1)
+
+                    # The agent had already carried an object, but performed a pickup action, making the cur_obs == pre_obs
+                    elif pre_obs['image'][3, 6, 0]!=1:
+                        if cur_action_idx>=2:
+                            repeated_pickup_when_carrying = (pre_lowlevel_action==MiniGridEnv.Actions.pickup) and (pre_pre_obs['image'][3,6,0]!=1)
+
+                if lowlevel_action == MiniGridEnv.Actions.drop:
+                    # The agent performs a drop action repeatedly while it does not carry any object
+                    if (cur_obs['image'][3, 5, 0]==1): # the cell in front of the agent is empty: the agent did not carried any object but performed a drop action
+                        repeated_drop_nothing = (pre_lowlevel_action==MiniGridEnv.Actions.drop) and (pre_obs['image'][3, 5, 0]==1)
+
+                    # The front cell of the agent was not empty, but the agent performed a drop action, making the cur_obs == pre_obs
+                    elif pre_obs['image'][3, 5, 0]!=1:
+                        if cur_action_idx>=2:
+                            repeated_drop_when_facing_obj = (pre_lowlevel_action==MiniGridEnv.Actions.drop) and (pre_pre_obs['image'][3,5,0]!=1)
+
+                if lowlevel_action == MiniGridEnv.Actions.toggle:
+                    if (cur_action_idx>=2):
+                        pre_face_door = (pre_obs['image'][3, 5, 0]==4)
+                        pre_face_box = (pre_obs['image'][3, 5, 0]==7)
+                        pre_pre_face_door = (pre_pre_obs['image'][3, 5, 0]==4)
+                        pre_pre_face_box = (pre_pre_obs['image'][3, 5, 0]==7)
+                        # The agent performs a toggle action repeatedly while the front cell is an empty cell, a wall, a ball or a key (wrong objects). toggle can only be performed on a door or a box.
+                        if (not pre_face_door) and (not pre_face_box):
+                            repeated_toggle_wrong_obj = (pre_lowlevel_action==MiniGridEnv.Actions.toggle) and ((not pre_pre_face_door) and (not pre_pre_face_box))
+
+                        # The agent faced a door but performed a toggle action without carrying the color-matched key
+                        elif pre_face_door:
+                            pre_carry_matched_key = (pre_obs['image'][3, 6, 0]==5 and (pre_obs['image'][3, 6, 1]==pre_obs['image'][3, 5, 1]))
+                            if not pre_carry_matched_key:
+                                repeated_toggle_door_without_matched_key = (pre_lowlevel_action==MiniGridEnv.Actions.toggle) and pre_pre_face_door and \
+                                                                    (not (pre_pre_obs['image'][3, 6, 0]==5 and (pre_pre_obs['image'][3, 6, 1]==pre_pre_obs['image'][3, 5, 1])) )
+
+                stuck_at_repeated_ineffective_action = is_stuck_and_rotating or \
+                                                        repeated_approach_front_obj or \
+                                                        repeated_pickup_nothing or repeated_pickup_when_carrying or \
+                                                        repeated_drop_nothing or repeated_drop_when_facing_obj or \
+                                                        repeated_toggle_wrong_obj or repeated_toggle_door_without_matched_key
+
+            # Select the observation if any of other rules are satisfied
+            if not stuck_at_repeated_ineffective_action:
+                # Select the observation if the current action is 'forward' and a new object is found
+                if lowlevel_action == MiniGridEnv.Actions.forward:
+                    pre_obs = self.history.vis_obss[-1]['image'] if cur_action_idx==0 else self.current_subgoal_history['vis_obss'][cur_action_idx-1]['image']
+                    is_moved = (pre_obs[3, 5, 0]==1) # the front cell of the agent was empty in the previsous observation
+
+                    # The agent faces an object or sees a new object. cell type 0: unsee, 1: empty
+                    # Case 1: agent moves forward and sees at least one new object
+                    # Case 2: agent moves forward and encounters an object
+                    # Case 3: agent faces an object and can not move forward. (1st time ineffective forward action)
+                    if is_moved:
+                        if (cur_obs['image'][3, 5, 0]!=1) or ((cur_obs['image'][:, 0, 0] >= 2).any()): # Case 1 or Case 2
+                            print(f"[{self.current_subgoal_history['lowlevel_time_steps'][cur_action_idx]}] moved forward and saw a new object")
+                            selected_obss_indices.append(cur_action_idx)
+                    else: # Case 3
+                        selected_obss_indices.append(cur_action_idx)
+                    '''
+                    # cur_obs['image'][3, 5, 0]!=1: the front cell of the agent is not empty. Covering Case 2 and 3.
+                    # cur_obs['image'][3, 5, 0]==1: the front cell of the agent in the currently resulting observation is empty,
+                    #                               it implicates that the agent has moved since the performed action is 'forward'.
+                    #                               together with the check, (cur_obs['image'][:, 0, 0] >= 2).any(), if at least
+                    #                               one new object is seen covers Case 1.
+                    if (cur_obs['image'][3, 5, 0]!=1) or ((cur_obs['image'][:, 0, 0] >= 2).any()):
+                        selected_obss_indices.append(cur_action_idx)
+                    '''
+                else: # For other primitive actions, select observations before and after the current action
+                    if (len(selected_obss_indices)!=0) and (selected_obss_indices[-1] != cur_action_idx-1):
+                        selected_obss_indices.append(cur_action_idx-1)
                     selected_obss_indices.append(cur_action_idx)
-            else: # For other primitive actions
-                if self.history_summarization_reduce_repeatedly_ineffective_actions:
-                    # Reduce repeatedly ineffective actions
-                    is_stuck_and_rotating = False
-                    repeated_pickup_nothing = False
-                    repeated_pickup_when_carrying = False
-                    repeated_drop_nothing = False
-                    repeated_drop_when_facing_obj = False
-                    repeated_toggle_wrong_obj = False
-                    repeated_toggle_door_without_matched_key = False
-
-                    # do not select the resulting observation if the action is left or right and the agent had taken three consecutive actions of the same type.
-                    # the agent was stuck and rotating at the location
-                    if lowlevel_action == MiniGridEnv.Actions.left or lowlevel_action == MiniGridEnv.Actions.right:
-                        if cur_action_idx>=3:
-                            is_stuck_and_rotating = (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]) and \
-                                                    (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-2]) and \
-                                                    (lowlevel_action==self.current_subgoal_history['lowlevel_actions'][cur_action_idx-3])
-
-                    if lowlevel_action == MiniGridEnv.Actions.pickup:
-                        if (cur_action_idx>=1):
-                            pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-1]
-                            pre_lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]
-                            # The agent performs a pickup action repeatedly while the front cell is an empty cell, a door or a wall
-                            if cur_obs['image'][3, 6, 0]==1: # the cell where the agent sits is empty: the agent performed a pickup action but is not carrying any object.
-                                repeated_pickup_nothing = (pre_lowlevel_action==MiniGridEnv.Actions.pickup) and (pre_obs['image'][3, 6, 0]==1)
-
-                            # The agent had already carried an object, but performed a pickup action, making the cur_obs == pre_obs
-                            elif pre_obs['image'][3, 6, 0]!=1:
-                                if cur_action_idx>=2:
-                                    repeated_pickup_when_carrying = (pre_lowlevel_action==MiniGridEnv.Actions.pickup) and (self.current_subgoal_history['vis_obss'][cur_action_idx-2]['image'][3,6,0]!=1)
-
-                    if lowlevel_action == MiniGridEnv.Actions.drop:
-                        if (cur_action_idx>=1):
-                            pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-1]
-                            pre_lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]
-                            # The agent performs a drop action repeatedly while it does not carry any object
-                            if (cur_obs['image'][3, 5, 0]==1): # the cell in front of the agent is empty: the agent did not carried any object but performed a drop action
-                                repeated_drop_nothing = (pre_lowlevel_action==MiniGridEnv.Actions.drop) and (pre_obs['image'][3, 5, 0]==1)
-
-                            # The front cell of the agent was not empty, but the agent performed a drop action, making the cur_obs == pre_obs
-                            elif pre_obs['image'][3, 5, 0]!=1:
-                                if cur_action_idx>=2:
-                                    repeated_drop_when_facing_obj = (pre_lowlevel_action==MiniGridEnv.Actions.drop) and (self.current_subgoal_history['vis_obss'][cur_action_idx-2]['image'][3,5,0]!=1)
-
-                    if lowlevel_action == MiniGridEnv.Actions.toggle:
-                        if (cur_action_idx>=2):
-                            pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-1]
-                            pre_lowlevel_action = self.current_subgoal_history['lowlevel_actions'][cur_action_idx-1]
-                            # The agent performs a toggle action repeatedly while the front cell is an empty cell, a wall, a ball or a key (wrong objects). toggle can only be performed on a door or a box.
-                            if pre_obs['image'][3, 5, 0]!=4 and pre_obs['image'][3, 5, 0]!=7:
-                                pre_pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-2]
-                                repeated_toggle_wrong_obj = (pre_lowlevel_action==MiniGridEnv.Actions.toggle) and (pre_pre_obs['image'][3, 5, 0]!=4 and pre_pre_obs['image'][3, 5, 0]!=7)
-
-                            # The agent faced a door but performed a toggle action without carrying the color-matched key
-                            elif (pre_obs['image'][3, 5, 0]==4) and not (pre_obs['image'][3, 6, 0]==5 and (pre_obs['image'][3, 6, 1]==pre_obs['image'][3, 5, 1])):
-                                pre_pre_obs = self.current_subgoal_history['vis_obss'][cur_action_idx-2]
-                                repeated_toggle_door_without_matched_key = (pre_lowlevel_action==MiniGridEnv.Actions.toggle) and \
-                                                                        ((pre_pre_obs['image'][3, 5, 0]==4) and not (pre_pre_obs['image'][3, 6, 0]==5 and (pre_pre_obs['image'][3, 6, 1]==pre_pre_obs['image'][3, 5, 1])))
-
-                    stuck_at_repeated_ineffective_action = is_stuck_and_rotating or \
-                                                            repeated_pickup_nothing or repeated_pickup_when_carrying or \
-                                                            repeated_drop_nothing or repeated_drop_when_facing_obj or \
-                                                            repeated_toggle_wrong_obj or repeated_toggle_door_without_matched_key
-                    if stuck_at_repeated_ineffective_action:
-                        cur_action_idx += 1
-                        continue
-
-                # For other primitive actions, select observations before and after the current action
-                if (cur_action_idx != 0) and (len(selected_obss_indices)!=0 and (selected_obss_indices[-1] != cur_action_idx-1)):
-                    selected_obss_indices.append(cur_action_idx-1)
-                selected_obss_indices.append(cur_action_idx)
 
             cur_action_idx += 1
 
@@ -1069,17 +1140,18 @@ class HRLAgent(ModelAgent):
         selected_obss_indices.append(cur_action_idx)
 
         # update the history of the current subgoal
+        self.current_subgoal_history['lowlevel_time_steps'] = [self.current_subgoal_history['lowlevel_time_steps'][idx] for idx in selected_obss_indices]
         self.current_subgoal_history['vis_obss'] = [self.current_subgoal_history['vis_obss'][idx] for idx in selected_obss_indices]
         self.current_subgoal_history['lowlevel_actions'] = [self.current_subgoal_history['lowlevel_actions'][idx] for idx in selected_obss_indices]
         self.current_subgoal_history['rewards'] = [self.current_subgoal_history['rewards'][idx] for idx in selected_obss_indices]
         self.current_subgoal_history['dones'] = [self.current_subgoal_history['dones'][idx] for idx in selected_obss_indices]
-        self.current_subgoal_history['lowlevel_time_steps'] = [self.current_subgoal_history['lowlevel_time_steps'][idx] for idx in selected_obss_indices]
 
     # Update the history with the current subgoal's (summarized) history
     def update_history(self):
         if self.abstract_history:
             self.summarize_subgoal_history()
 
+        self.history.lowlevel_time_steps.extend(self.current_subgoal_history['lowlevel_time_steps'])
         self.history.vis_obss.extend(self.current_subgoal_history['vis_obss'])
         self.history.lowlevel_actions.extend(self.current_subgoal_history['lowlevel_actions'])
         self.history.rewards.extend(self.current_subgoal_history['rewards'])
@@ -1171,7 +1243,7 @@ def load_agent(
         env,
         model_name, argmax=True,
         subgoals=None, goal=None,
-        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False, only_attend_immediate_media=True,
+        skill_library=None, skill_memory_size=None, subgoal_set=None, use_vlm=True, abstract_history=False, only_attend_immediate_media=True, history_summarization_reduce_repeatedly_ineffective_actions=True,
         demos_name=None, demos_origin=None, env_name=None, check_subgoal_completion=False,
         model_version='current'):
     # env_name needs to be specified for demo agents
@@ -1184,7 +1256,8 @@ def load_agent(
             return HRLAgent(
                 model_name, argmax,
                 skill_library, skill_memory_size, subgoal_set,
-                use_vlm, abstract_history, only_attend_immediate_media,
+                use_vlm=use_vlm, abstract_history=abstract_history, only_attend_immediate_media=only_attend_immediate_media,
+                history_summarization_reduce_repeatedly_ineffective_actions=history_summarization_reduce_repeatedly_ineffective_actions,
                 model_version=model_version)
         else:
             obss_preprocessor = utils.ObssPreprocessor(model_name, env.observation_space, model_version=model_version)
