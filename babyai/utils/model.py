@@ -90,6 +90,8 @@ def create_random_hrl_vlm_model(
     hist = "full" # full history
     if abstract_history:
         hist = "abs" # abstract
+        if args is not None:
+            hist += args.abstract_history_type
     attn = "all" # cross attend to all previous medias
     if only_attend_immediate_media:
         attn = "imd" # cross attend to the immediate media
