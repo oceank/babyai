@@ -56,7 +56,7 @@ parser.add_argument("--print-primitive-action-info", action="store_true", defaul
 parser.add_argument("--manuall-select-subgoal", action="store_true", default=False,
                     help="manually select a subgoal by an expert")
 
-debug = False
+debug = True#False
 
 args = parser.parse_args()
 
@@ -129,15 +129,19 @@ mission = obs["mission"]
 
 # Define and reset the agent
 model_version='current'
+abstract_history = True # False: use a full history
+history_summarization_reduce_repeatedly_ineffective_actions= True
+use_vlm = True # use Flamingo model
+only_attend_immediate_media = False # False: text attends to all previous media in Flamingo model
 agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
-        subgoal_set=subgoal_set, use_vlm=True, abstract_history=False, only_attend_immediate_media=False,
+        subgoal_set=subgoal_set, use_vlm=use_vlm, abstract_history=abstract_history, only_attend_immediate_media=only_attend_immediate_media,
+        history_summarization_reduce_repeatedly_ineffective_actions=history_summarization_reduce_repeatedly_ineffective_actions,
         model_version=model_version)
-#agent.abstract_history = True # Testing abstract history
 agent.model.max_lang_model_input_len = args.max_lang_model_input_len
 agent.set_model_mode(is_training=False)
-#agent.model.eval()
+
 with torch.no_grad():
     agent.on_reset(env, mission, obs, propose_first_subgoal=(not args.manuall_select_subgoal))
 print(f"[Episode: {episode_num+1}] Mission: {mission}")
@@ -224,9 +228,9 @@ def keyDownCb(event):
     step += 1 # a step of executing a primitive action
     prev_step = step-1
 
-    if result is not None and args.print_primitive_action_info:
+    if args.print_primitive_action_info:
         msg = ""
-        if 'dist' in result and 'value' in result:
+        if result is not None and ('dist' in result and 'value' in result):
             dist, value = result['dist'], result['value']
             dist_str = ", ".join("{:.4f}".format(float(p)) for p in dist.probs[0])
             msg = "\tcurrent subgoal: {}, action: {}, dist: {}, entropy: {:.2f}, value: {:.2f}".format(
@@ -329,7 +333,9 @@ while True:
             print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): {subgoal_status_str}")
 
             # append the subgoal status to the agent's history
+            #agent.save_subgoal_history_to_file(env, seed=args.seed + episode_num, debug_hist_sum='ful')
             agent.update_history_with_subgoal_status()
+            #agent.save_subgoal_history_to_file(env, seed=args.seed + episode_num, debug_hist_sum='abs')
 
         if done:
             if agent.current_subgoal_status == 0:

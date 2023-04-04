@@ -69,6 +69,9 @@ parser.add_argument("--max-desc-len", type=int, default=20,
                     help="maxmium number of tokens in a newly generated sentence (default: 20)")
 parser.add_argument("--abstract-history", action="store_true", default=False,
                     help="Allows you to switch between the full history and the abstraction of the full history")
+parser.add_argument("--abstract-history-type", type=str, default="R0",
+                    help="a name indicates a type of abstraction of the full history. For example, 'R0' means the history abstraction is based on the initial set of rules. 'R1' reduces repeatedly ineffective actions. 'M0' indicates using a model for history abstraction.")
+
 parser.add_argument("--only-attend-immediate-media", action="store_true", default=False,
                     help="The VLM has a text token only attend to its immediately previous media. The true value of this argumetn will make the non-immediate media collected in the full history mode useless.")
 '''
@@ -242,11 +245,13 @@ obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space
 #       consider to remove it.
 # 2.    argmax is set to False for training agent ; set it True for evaluation
 print(f"===>    Initializing the HRL agent")
+history_summarization_reduce_repeatedly_ineffective_actions = args.abstract_history and (args.abstract_history_type=="rule1")
 agent = utils.load_agent(
         env=envs[0], model_name=acmodel, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
         subgoal_set=subgoal_set, use_vlm=True,
-        abstract_history=args.abstract_history, only_attend_immediate_media=args.only_attend_immediate_media)
+        abstract_history=args.abstract_history, only_attend_immediate_media=args.only_attend_immediate_media,
+        history_summarization_reduce_repeatedly_ineffective_actions=history_summarization_reduce_repeatedly_ineffective_actions)
 
 # Define actor-critic algo
 print(f"===>    Initializing the actor-critic algorithm")
