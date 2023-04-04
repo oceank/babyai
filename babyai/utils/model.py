@@ -96,6 +96,7 @@ def create_random_hrl_vlm_model(
     arch = f"{arch}_{hist}_{attn}"
     mem = "mem"
     skill_arch = f"{skill_arch}_{skill_instr_arch}_{mem}"
+    lang_model_train_mode = "Frozen"
 
     model_name_parts = {
         'env': env_name,
@@ -114,6 +115,7 @@ def create_random_hrl_vlm_model(
         model_name_parts['lrst'] = args.lr_scheduling_type
         model_name_parts['lang_model_train_mode'] = args.lang_model_train_mode
         model_name = "{env}_{algo}_{arch}_Lang{lang_model_train_mode}_lr{lr}s{lrst}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+        lang_model_train_mode = args.lang_model_train_mode
     print(f"=== Model Name ===")
     print(f"{model_name}")
 
@@ -163,7 +165,7 @@ def create_random_hrl_vlm_model(
         perceiver_num_time_embeds = max_history_window_vlm,#16, 8
         only_attend_immediate_media = only_attend_immediate_media,
         train_vis_encoder = train_vis_encoder,
-        lang_model_train_mode = args.lang_model_train_mode
+        lang_model_train_mode = lang_model_train_mode
     )
 
     print(f"[Setup] Create a Flamingo-based Actor-Critic Model")
