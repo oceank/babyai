@@ -259,7 +259,7 @@ def keyDownCb(event):
         print(f"Reward: {reward}\n")
         env.render("human")
         if debug:
-            agent.save_history_to_file(env)
+            agent.save_history_to_file(env, seed=args.seed + episode_num)
 
         episode_num += 1
         env.seed(args.seed + episode_num)
@@ -340,7 +340,7 @@ while True:
             env.render("human")
             all_rewards.append(reward)
             if debug:
-                agent.save_history_to_file(env)
+                agent.save_history_to_file(env, seed=args.seed + episode_num)
 
             episode_num += 1
             if episode_num == max_num_episodes:
