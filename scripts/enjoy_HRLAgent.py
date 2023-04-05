@@ -56,7 +56,8 @@ parser.add_argument("--print-primitive-action-info", action="store_true", defaul
 parser.add_argument("--manuall-select-subgoal", action="store_true", default=False,
                     help="manually select a subgoal by an expert")
 
-debug = True#False
+debug = True #False
+max_num_episodes = 1 # Test for 100 episodes
 
 args = parser.parse_args()
 
@@ -104,16 +105,18 @@ subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_
 subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
+abstract_history = True # False: use a full history
+only_attend_immediate_media = False # False: text attends to all previous media in Flamingo model
+model_version='current'
 if args.model is None:
     num_high_level_actions = subgoal_set.num_subgoals_info['total']
     acmodel, args.model = create_random_hrl_vlm_model(
         args.env, args.seed, num_high_level_actions,
         args.skill_arch, args.instr_arch, args.max_history_window_vlm, device,
-        abstract_history=False, only_attend_immediate_media=False,
+        abstract_history=abstract_history, only_attend_immediate_media=only_attend_immediate_media,
         max_lang_model_input_len=args.max_lang_model_input_len)
     utils.save_model(acmodel, args.model, model_version='current')
 
-max_num_episodes = 100
 subgoal_idx = 0
 step = 0
 episode_num = 0
@@ -128,11 +131,8 @@ obs = env.reset()
 mission = obs["mission"]
 
 # Define and reset the agent
-model_version='current'
-abstract_history = True # False: use a full history
 history_summarization_reduce_repeatedly_ineffective_actions= True
 use_vlm = True # use Flamingo model
-only_attend_immediate_media = False # False: text attends to all previous media in Flamingo model
 agent = utils.load_agent(
         env=env, model_name=args.model, argmax=args.argmax,
         skill_library=skill_library, skill_memory_size=skill_memory_size,
@@ -330,17 +330,28 @@ while True:
         if agent.current_subgoal_status != 0:
             subgoal_success = agent.current_subgoal_status == 1
             subgoal_status_str = "Success" if subgoal_success else "Failure"
+
+            if debug:
+                agent.save_subgoal_history_to_file(env, sg_idx=subgoal_idx, seed=args.seed + episode_num, debug_hist_sum='ful')
+            # append the subgoal status to the agent's history
+            agent.update_history_with_subgoal_status()
+
             print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): {subgoal_status_str}")
 
-            # append the subgoal status to the agent's history
-            #agent.save_subgoal_history_to_file(env, seed=args.seed + episode_num, debug_hist_sum='ful')
-            agent.update_history_with_subgoal_status()
-            #agent.save_subgoal_history_to_file(env, seed=args.seed + episode_num, debug_hist_sum='abs')
+            if debug:
+                agent.save_subgoal_history_to_file(env, sg_idx=subgoal_idx, seed=args.seed + episode_num, debug_hist_sum='abs')
 
         if done:
             if agent.current_subgoal_status == 0:
-                print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): Incomplete. But the mission is done.")
+
+                if debug:
+                    agent.save_subgoal_history_to_file(env, sg_idx=subgoal_idx, seed=args.seed + episode_num, debug_hist_sum='ful')
                 agent.update_history_with_subgoal_status()
+
+                print(f"[Step {step}, {subgoal_idx}th Subgoal Ends] {agent.current_subgoal_desc} (Subgoal {agent.current_subgoal_idx}): Incomplete. But the mission is done.")
+
+                if debug:
+                    agent.save_subgoal_history_to_file(env, sg_idx=subgoal_idx, seed=args.seed + episode_num, debug_hist_sum='abs')
 
             print(f"Reward: {reward}\n")
             env.render("human")

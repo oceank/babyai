@@ -245,7 +245,7 @@ obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space
 #       consider to remove it.
 # 2.    argmax is set to False for training agent ; set it True for evaluation
 print(f"===>    Initializing the HRL agent")
-history_summarization_reduce_repeatedly_ineffective_actions = args.abstract_history and (args.abstract_history_type=="rule1")
+history_summarization_reduce_repeatedly_ineffective_actions = args.abstract_history and (args.abstract_history_type=="R1")
 agent = utils.load_agent(
         env=envs[0], model_name=acmodel, argmax=False,
         skill_library=skill_library, skill_memory_size=skill_memory_size,

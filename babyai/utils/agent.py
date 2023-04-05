@@ -789,13 +789,13 @@ class HRLAgent(ModelAgent):
             image_path = os.path.join(utils.storage_dir(), "history", env.spec.id, history_folder, image_filename)
             img.save(image_path)
 
-    def save_subgoal_history_to_file(self, env, seed=None, history_folder=None, debug_hist_sum=None):
+    def save_subgoal_history_to_file(self, env, sg_idx=None, seed=None, history_folder=None, debug_hist_sum=None):
         import os
         from PIL import Image
 
         env_name = env.spec.id
         token_seq_filname = "token_seq.txt"
-        history_folder = history_folder if history_folder else f"{('seed'+str(seed)+'_') if seed is not None else ''}history_at_step{self.current_time_step}"
+        history_folder = history_folder if history_folder else f"{('seed'+str(seed)+'_') if seed else ''}{('sg'+str(sg_idx)+'_') if sg_idx else ''}history_at_step{self.current_time_step}"
         if debug_hist_sum is not None:
             history_folder += f"_{debug_hist_sum}"
         path = os.path.join(utils.storage_dir(), "history", env_name, history_folder,  token_seq_filname)
@@ -1116,7 +1116,11 @@ class HRLAgent(ModelAgent):
                     # Case 3: agent faces an object and can not move forward. (1st time ineffective forward action)
                     if is_moved:
                         if (cur_obs['image'][3, 5, 0]!=1) or ((cur_obs['image'][:, 0, 0] >= 2).any()): # Case 1 or Case 2
-                            print(f"[{self.current_subgoal_history['lowlevel_time_steps'][cur_action_idx]}] moved forward and saw a new object")
+                            if False: # debug
+                                if (cur_obs['image'][3, 5, 0]!=1):
+                                    print(f"[{self.current_subgoal_history['lowlevel_time_steps'][cur_action_idx]}] moved forward and now is facing an object")
+                                if ((cur_obs['image'][:, 0, 0] >= 2).any()):
+                                    print(f"[{self.current_subgoal_history['lowlevel_time_steps'][cur_action_idx]}] moved forward and saw a new object")
                             selected_obss_indices.append(cur_action_idx)
                     else: # Case 3
                         selected_obss_indices.append(cur_action_idx)
@@ -1156,8 +1160,6 @@ class HRLAgent(ModelAgent):
         self.history.lowlevel_actions.extend(self.current_subgoal_history['lowlevel_actions'])
         self.history.rewards.extend(self.current_subgoal_history['rewards'])
         self.history.dones.extend(self.current_subgoal_history['dones'])
-        self.history.lowlevel_time_steps.extend(self.current_subgoal_history['lowlevel_time_steps'])
-
 
     # Call this function when the current subgoal is done
     # Assume information given by the environment has been accumulated in the history of the current subgoal.
