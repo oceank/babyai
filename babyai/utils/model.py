@@ -200,8 +200,8 @@ def print_trainable_parameters(model, print_details=False):
             trainable_params += num_params
             if print_details:
                 trainable_params_dict[name] = num_params
-    msg = f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
+    msg = f"\ttrainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
     print(msg)
     if print_details:
         for name, num_params in trainable_params_dict.items():
-            print(f"{name}: {num_params}")
+            print(f"\t\t{name}: {num_params}")
