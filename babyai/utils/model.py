@@ -181,15 +181,22 @@ def create_random_hrl_vlm_model(
 
     return acmodel, model_name
 
-def print_trainable_parameters(model, print_details=False):
+def print_trainable_parameters(model, print_details=False, gpt_lm_head=False):
     """
     Prints the number of trainable parameters in the model.
+    gpt_lm_head: assume the imported language model is a GPT2LMHeadModel
+        if True, the lm_head layer is used during forward pass. Then, the gradient of loss with respect to the lm_head layer is computed. So, count these parameters.
+        if False, the lm_head layer is not used during forward pass. Then, the gradient of loss with respect to the lm_head layer is not computed. So, do not count these parameters.
     """
     trainable_params = 0
     all_param = 0
     if print_details:
         trainable_params_dict = {}
     for name, param in model.named_parameters():
+        if not gpt_lm_head and ("lm_head" in name):
+            print(f"Skip counting the parameters of {name} since it is not used during the forward pass.")
+            continue
+
         num_params = param.numel()
         # if using DS Zero 3 and the weights are initialized empty
         if num_params == 0 and hasattr(param, "ds_numel"):
