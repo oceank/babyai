@@ -99,6 +99,10 @@ class LowlevelInstrSet:
         for obj_type in self.object_types:
             for color in self.object_colors:
                 obj = ObjDesc(obj_type, color=color)
+                
+                subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
+
                 if obj_type == 'door':
                     subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
                     subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
@@ -108,8 +112,7 @@ class LowlevelInstrSet:
                     if obj_type == 'box':
                         subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
-                subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
-                subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
+
         return subgoal_instructions_by_skill
 
     def subgoal_set_for_PutNextLocalBallBox(self):
