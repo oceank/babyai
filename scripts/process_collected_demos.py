@@ -29,8 +29,6 @@ from babyai.levels.verifier import LowlevelInstrSet, SKILL_DESCRIPTIONS, SKILL_D
 from sklearn.model_selection import train_test_split
 import pandas as pd
 
-#SKILL_DESCRIPTIONS = ["OpenDoor", "PassDoor", "OpenBox", "Pickup", "GoTo", "DropNextTo", "DropNextNothing"]
-
 # Parse arguments
 parser = ArgumentParser()
 parser.add_argument("--demos-name-list", type=str, default=None,

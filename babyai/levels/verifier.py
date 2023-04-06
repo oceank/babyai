@@ -12,15 +12,15 @@ OBJ_TYPES_NOT_DOOR = list(filter(lambda t: t != 'door', OBJ_TYPES))
 # Locations are all relative to the agent's starting position
 LOC_NAMES = ['left', 'right', 'front', 'behind']
 
-SKILL_DESCRIPTIONS = ["OpenDoor", "PassDoor", "OpenBox", "Pickup", "GoTo", "DropNextTo", "DropNextNothing"]
+SKILL_DESCRIPTIONS = ["OpenDoor", "PassDoor", "OpenBox", "Pickup", "GoTo", "DropNextTo"] #, "DropNextNothing"]
 SKILL_DESC_INDICES = {
     "OpenDoor" : 0,
     "PassDoor" : 1,
     "OpenBox"  : 2,
     "Pickup"   : 3,
     "GoTo"     : 4,
-    "DropNextTo" : 5,
-    "DropNextNothing" : 6}
+    "DropNextTo" : 5,}
+#    "DropNextNothing" : 6}
 
 # Environment flag to indicate that done actions should be
 # used by the verifier
@@ -103,7 +103,7 @@ class LowlevelInstrSet:
                     subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
                     subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
                 else:
-                    subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
+                    #subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
                     subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
                     if obj_type == 'box':
                         subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
@@ -144,30 +144,6 @@ class LowlevelInstrSet:
 
         return subgoal_instructions_by_skill
 
-    def subgol_set_for_UnblockPickup(self):
-        subgoal_instructions_by_skill = {}
-        for skill_desc in SKILL_DESCRIPTIONS:
-            subgoal_instructions_by_skill[skill_desc] = []
-
-        for obj_type in self.object_types:
-            for color in self.object_colors:
-                obj = ObjDesc(obj_type, color=color)
-                if (obj_type == 'door') and (color in COLOR_NAMES[:2]):
-                        subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
-                elif (obj_type=="key" and color in COLOR_NAMES[:2]) or (obj_type == 'box' and color in COLOR_NAMES[2:4]) or (obj_type == "ball" and color in COLOR_NAMES[4:]):
-                    subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
-                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
-                '''
-                if (obj_type == 'door'):
-                    if (color in COLOR_NAMES[4:]):
-                        subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
-                else:
-                    if color in COLOR_NAMES[4:]:
-                    subgoal_instructions_by_skill['DropNextNothing'].append(DropNextNothingInstr(initially_carried_world_obj=None, obj_to_drop=obj))
-                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
-                '''
-
-        return subgoal_instructions_by_skill
 
     def fetch_subgoal_set(self, subgoal_set_type):
         if subgoal_set_type=="subgoal_set_for_all":
@@ -180,14 +156,12 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False)
         elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal1Box1BallFixColorR2":
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False, fix_color=True)
-        elif subgoal_set_type=="subgoal_set_for_UnblockPickupR3":
-            return self.subgol_set_for_UnblockPickup()
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
 
     def generate_all_subgoals(self, subgoal_set_type="subgoal_set_for_all"):
         """
-        7 types of low-level instructions (subgoals)
+        Multiple types of low-level instructions (subgoals)
         OpenDoorLocal:
             If the door is closed, open it; 
         PassDoorLocal:
