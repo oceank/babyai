@@ -98,7 +98,7 @@ def create_random_hrl_vlm_model(
     arch = f"{arch}_{hist}_{attn}"
     mem = "mem"
     skill_arch = f"{skill_arch}_{skill_instr_arch}_{mem}"
-    lang_model_train_mode = "Frozen"
+    lang_model_train_mode = "FrozenAll"
 
     model_name_parts = {
         'env': env_name,

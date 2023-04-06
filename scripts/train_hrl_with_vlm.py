@@ -123,8 +123,8 @@ parser.add_argument("--dataset-split-seed", type=int, default=1,
                     help="the seed used by train_test_split() to split the dataset"
                     )
 
-parser.add_argument("--lang-model-train-mode", type=str, default='Frozen',
-                    help="Train mode for the language part of the Flamingo model. The default mode is to frozen the pretrained language part.")
+parser.add_argument("--lang-model-train-mode", type=str, default='FrozenAll',
+                    help="Train mode for the language part of the Flamingo model. The default mode is to frozen the entire pretrained language part.")
 
 args = parser.parse_args()
 if args.demos_name == 'None':
