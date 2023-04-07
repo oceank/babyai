@@ -2626,6 +2626,46 @@ class Level_DropNextNothingLocalR2(Level_ActionObjDoorR2):
             obj_to_drop = ObjDesc(carried_obj_type, carried_obj_color)
         )
 
+### Envs for paper
+class Level_DiscoverHiddenObjBlueBoxR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        # add a box
+        color = 'blue'
+        type = 'box'
+        obj = (type, color)
+        target_box, pos = self.add_object(0, 0, *obj)
+
+        # add a closed door
+        door, _ = self.add_door(i=0, j=0, locked=False, is_open=False)
+
+        # add two balls and two keys
+        objs = []
+        for color in ['red', 'green']:
+            for type in ['ball', 'key']:
+                obj = (type, color)
+                obj, pos = self.add_object(i=0, j=0, *obj)
+                objs.append(obj)
+
+        hidden_obj = self._rand_elem(objs)
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
+
 ## High-level tasks
 ### Two-Subgoal Task Group
 class Level_UnlockLocalR2(Level_ActionObjDoorR2):
