@@ -2627,7 +2627,16 @@ class Level_DropNextNothingLocalR2(Level_ActionObjDoorR2):
         )
 
 ### Envs for paper
-class Level_DiscoverHiddenObjBlueBoxR2(Level_ActionObjDoorR2):
+'''
+    The env has 1 cloded door of any color, 1 blue box, red and green balls.
+    The target ball, either red or green, is hidden in the box.
+    The goal is to find and pickup the target ball.
+    Set of 3 subgoals:
+        Open the blue box
+        Pickup the red ball
+        Pickup the green ball
+'''
+class Level_DiscoverHiddenBallBlueBoxR2(Level_ActionObjDoorR2):
     def __init__(self, seed=None):
         super().__init__(seed=seed)
 
@@ -2643,15 +2652,15 @@ class Level_DiscoverHiddenObjBlueBoxR2(Level_ActionObjDoorR2):
         # add a closed door
         door, _ = self.add_door(i=0, j=0, locked=False, is_open=False)
 
-        # add two balls and two keys
-        objs = []
+        # add two balls
+        balls = []
         for color in ['red', 'green']:
-            for type in ['ball', 'key']:
+            for type in ['ball']:
                 obj = (type, color)
-                obj, pos = self.add_object(i=0, j=0, *obj)
-                objs.append(obj)
+                obj, pos = self.add_object(0, 0, *obj)
+                balls.append(obj)
 
-        hidden_obj = self._rand_elem(objs)
+        hidden_obj = self._rand_elem(balls)
         self.grid.set(*hidden_obj.cur_pos, None)
         hidden_obj.cur_pos = None
         hidden_obj.init_pos = None
@@ -2664,6 +2673,60 @@ class Level_DiscoverHiddenObjBlueBoxR2(Level_ActionObjDoorR2):
 
         desc = ObjDesc(hidden_obj.type, hidden_obj.color)
         self.instrs = PickupInstr(desc)
+
+'''
+    The env has 1 cloded door of any color, blue and purple boxes, red and green balls keys.
+    The target key, either yellow or grey, is hidden in the target box, either blue or purple.
+    The goal is to find and pickup the target key.
+    Set of 4 subgoals:
+        Open the blue box
+        Open the purple box
+        Pickup the red key
+        Pickup the green key
+'''
+class Level_DiscoverHiddenKeyR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        # add a closed door
+        door, _ = self.add_door(i=0, j=0, locked=False, is_open=False)
+
+        # add boxes
+        type = 'box'
+        boxes = []
+        for box_color in ['blue', 'purple']:
+            box = (type, box_color)
+            box, pos = self.add_object(0, 0, *obj)
+            boxes.append(box)
+        target_box = self._rand_elem(boxes)
+
+        # add two balls and two keys
+        keys = []
+        for color in ['red', 'green']:
+            for type in ['ball', 'key']:
+                obj = (type, color)
+                obj, pos = self.add_object(0, 0, *obj)
+                if type == 'key':
+                    keys.append(obj)
+        hidden_obj = self._rand_elem(keys)
+
+        # hide the key in the box
+        self.grid.set(*hidden_obj.cur_pos, None)
+        hidden_obj.cur_pos = None
+        hidden_obj.init_pos = None
+        target_box.contains = hidden_obj
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(hidden_obj.type, hidden_obj.color)
+        self.instrs = PickupInstr(desc)
+
 
 
 ## High-level tasks

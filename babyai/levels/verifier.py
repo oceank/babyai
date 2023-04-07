@@ -64,9 +64,12 @@ class LowlevelInstrSet:
         for skill_desc in SKILL_DESCRIPTIONS:
             self.num_subgoals_info[skill_desc] = 0
 
+        self.list_of_associated_skill_descs = []
         self.all_subgoals = self.generate_all_subgoals(subgoal_set_type=self.subgoal_set_type)
         self.initial_valid_subgoals = []
         self.current_valid_subgoals = []
+
+
 
     def generate_instr_desc(self, instr, acticle='a'):
         assert instr.desc and instr.desc.type and instr.desc.color
@@ -93,7 +96,8 @@ class LowlevelInstrSet:
 
     def subgoal_set_for_all(self):
         subgoal_instructions_by_skill = {}
-        for skill_desc in SKILL_DESCRIPTIONS:
+        self.list_of_associated_skill_descs = SKILL_DESCRIPTIONS
+        for skill_desc in self.list_of_associated_skill_descs:
             subgoal_instructions_by_skill[skill_desc] = []
 
         for obj_type in self.object_types:
@@ -112,27 +116,45 @@ class LowlevelInstrSet:
                     if obj_type == 'box':
                         subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
 
-
         return subgoal_instructions_by_skill
 
-    def subgoal_set_for_DiscoverHiddenObjBlueBox(self):
+    def subgoal_set_for_DiscoverHiddenBallBlueBoxR2(self):
         subgoal_instructions_by_skill = {}
-        for skill_desc in ['OpenBox', 'Pickup']:
+        self.list_of_associated_skill_descs = ['OpenBox', 'Pickup']
+        for skill_desc in self.list_of_associated_skill_descs:
             subgoal_instructions_by_skill[skill_desc] = []
 
         for obj_type in self.object_types:
             for obj_color in self.object_colors:
                 obj = ObjDesc(obj_type, color=obj_color)
-                if obj_type == "box": # there is only one blue box
+                if obj_type == "box" and obj_color == 'blue': # there is only one blue box
                     subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
-                elif obj_type == 'ball' or obj_type == 'key':
+                elif obj_type == 'ball':
+                    if obj_color == 'red' or obj_color == 'green':
+                        subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
+        return subgoal_instructions_by_skill
+
+    def subgoal_set_for_DiscoverHiddenKeyR2(self):
+        subgoal_instructions_by_skill = {}
+        self.list_of_associated_skill_descs = ['OpenBox', 'Pickup']
+        for skill_desc in self.list_of_associated_skill_descs:
+            subgoal_instructions_by_skill[skill_desc] = []
+
+        for obj_type in self.object_types:
+            for obj_color in self.object_colors:
+                obj = ObjDesc(obj_type, color=obj_color)
+                if obj_type == "box":
+                    if obj_color=='purple' and obj_color == 'blue': # there are one blue box and one purple box
+                        subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
+                elif obj_type == 'key':
                     if obj_color == 'red' or obj_color == 'green':
                         subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
         return subgoal_instructions_by_skill
 
     def subgoal_set_for_PutNextLocalBallBox(self):
         subgoal_instructions_by_skill = {}
-        for skill_desc in SKILL_DESCRIPTIONS:
+        self.list_of_associated_skill_descs = ['OpenBox', 'Pickup', 'DropNextTo']
+        for skill_desc in self.list_of_associated_skill_descs:
             subgoal_instructions_by_skill[skill_desc] = []
 
         for obj_type in self.object_types:
@@ -147,7 +169,8 @@ class LowlevelInstrSet:
 
     def subgoal_set_for_OpenBoxPickupLocal2Boxes(self, has_key=True, fix_color=False):
         subgoal_instructions_by_skill = {}
-        for skill_desc in SKILL_DESCRIPTIONS:
+        self.list_of_associated_skill_descs = ['OpenBox', 'Pickup']
+        for skill_desc in self.list_of_associated_skill_descs:
             subgoal_instructions_by_skill[skill_desc] = []
 
         box_colors = [COLOR_NAMES[1]] if fix_color else COLOR_NAMES[:2]
@@ -174,8 +197,10 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False)
         elif subgoal_set_type=="subgoal_set_for_OpenBoxPickupLocal1Box1BallFixColorR2":
             return self.subgoal_set_for_OpenBoxPickupLocal2Boxes(has_key=False, fix_color=True)
-        elif subgoal_set_type=="subgoal_set_for_DiscoverHiddenObjBlueBox":
-            return self.subgoal_set_for_DiscoverHiddenObjBlueBox()
+        elif subgoal_set_type=="subgoal_set_for_DiscoverHiddenBallBlueBoxR2":
+            return self.subgoal_set_for_DiscoverHiddenBallBlueBoxR2()
+        elif subgoal_set_type=="subgoal_set_for_DiscoverHiddenKeyR2":
+            return self.subgoal_set_for_DiscoverHiddenKeyR2()
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
 
@@ -207,12 +232,13 @@ class LowlevelInstrSet:
         subgoals = []
         subgoal_idx = 0
         for skill_desc in SKILL_DESCRIPTIONS:
-            self.num_subgoals_info[skill_desc] = len(subgoal_instructions_by_skill[skill_desc])
-            for subgoal_instr in subgoal_instructions_by_skill[skill_desc]:
-                self.generate_instr_desc(subgoal_instr, acticle='the')
-                # subgoal: 0-subgoal_idx, 1-subgoal_instr, 2-skill_desc
-                subgoals.append((subgoal_idx, subgoal_instr, skill_desc))
-                subgoal_idx += 1
+            if skill_desc in subgoal_instructions_by_skill:
+                self.num_subgoals_info[skill_desc] = len(subgoal_instructions_by_skill[skill_desc])
+                for subgoal_instr in subgoal_instructions_by_skill[skill_desc]:
+                    self.generate_instr_desc(subgoal_instr, acticle='the')
+                    # subgoal: 0-subgoal_idx, 1-subgoal_instr, 2-skill_desc
+                    subgoals.append((subgoal_idx, subgoal_instr, skill_desc))
+                    subgoal_idx += 1
         # The variable subgoal_idx is the total number of subgoals
         self.num_subgoals_info['total'] = subgoal_idx
 
