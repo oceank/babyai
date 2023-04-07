@@ -116,7 +116,8 @@ def create_random_hrl_vlm_model(
         model_name_parts['bs']  = args.skill_budget_steps
         model_name_parts['lrst'] = args.lr_scheduling_type
         model_name_parts['lang_model_train_mode'] = args.lang_model_train_mode
-        model_name = "{env}_{algo}_{arch}_Lang{lang_model_train_mode}_lr{lr}s{lrst}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
+        model_name_parts['prior'] = "has" if args.prior_knowledge != "" else "no"
+        model_name = "{env}_{algo}_{arch}_Lang{lang_model_train_mode}_{prior}Prior_lr{lr}s{lrst}_wt{wtype}_ec{ecoef}_cl{clip}_SKILL_bs{bs}_{skill_arch}_SEED{seed}_{suffix}".format(**model_name_parts)
         lang_model_train_mode = args.lang_model_train_mode
     print(f"=== Model Name ===")
     print(f"{model_name}")
