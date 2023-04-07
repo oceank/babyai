@@ -2699,7 +2699,7 @@ class Level_DiscoverHiddenKeyR2(Level_ActionObjDoorR2):
         boxes = []
         for box_color in ['blue', 'purple']:
             box = (type, box_color)
-            box, pos = self.add_object(0, 0, *obj)
+            box, pos = self.add_object(0, 0, *box)
             boxes.append(box)
         target_box = self._rand_elem(boxes)
 
