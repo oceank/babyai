@@ -126,6 +126,9 @@ parser.add_argument("--dataset-split-seed", type=int, default=1,
 parser.add_argument("--lang-model-train-mode", type=str, default='FrozenAll',
                     help="Train mode for the language part of the Flamingo model. The default mode is to frozen the entire pretrained language part.")
 
+parser.add_argument("--prior-knowledge", type=str, default="",
+                    help="List of sentences describing the agent's prior knowledge of the environment.")
+
 args = parser.parse_args()
 if args.demos_name == 'None':
     args.demos_name = None
@@ -176,26 +179,6 @@ for i in range(args.procs):
 
 # Load skill library
 
-skill_library = {}
-skill_memory_size = None
-
-print(f"===>    Loading skill library from {args.skill_names_file}.")
-skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
-skill_model_version = 'best'
-with open(skill_model_names_fp, 'r') as f:
-    skill_names = f.readlines()
-    skill_names = [skill_name.strip() for skill_name in skill_names]
-
-    for skill_model_name in skill_names:
-        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
-        skill['model'].to(device)
-        skill_library[skill['description']] = skill
-
-    # assume all skills use the same memory size for their LSTM componenet
-    skill_memory_size = skill['model'].memory_size
-for skill_desc in skill_library:
-    print(skill_desc)
-
 # Initialize subgoal set
 print(f"===>    Initializing the predefined subgoal set")
 subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
@@ -204,6 +187,27 @@ subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_
 if os.path.exists(subgoal_set_names_fp):
     subgoal_set_names_fp=None
 subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
+
+
+print(f"===>    Loading skill library from {args.skill_names_file}.")
+skill_library = {}
+skill_memory_size = None
+skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
+skill_model_version = 'best'
+with open(skill_model_names_fp, 'r') as f:
+    skill_model_names = f.readlines()
+    skill_model_names = [skill_model_name.strip() for skill_model_name in skill_model_names]
+
+    for skill_model_name in skill_model_names:
+        for skill_desc in subgoal_set.list_of_associated_skill_descs:
+            if skill_desc in skill_model_name:
+                print(f"======>    Loading the skill {skill_desc} from skill model {skill_model_name}")
+                skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
+                skill['model'].to(device)
+                skill_library[skill_desc] = skill
+                # assume all skills use the same memory size for their LSTM componenet
+                skill_memory_size = skill['model'].memory_size
+
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 print(f"===>    Creating a random HRL-VLM model or load the model from {args.model}")
@@ -245,6 +249,7 @@ obss_preprocessor = utils.ObssPreprocessor(args.model, envs[0].observation_space
 #       consider to remove it.
 # 2.    argmax is set to False for training agent ; set it True for evaluation
 print(f"===>    Initializing the HRL agent")
+print(f"===>    Prior knowledge: {args.prior_knowledge}")
 history_summarization_reduce_repeatedly_ineffective_actions = args.abstract_history and (args.abstract_history_type=="R1")
 agent = utils.load_agent(
         env=envs[0], model_name=acmodel, argmax=False,
@@ -252,6 +257,7 @@ agent = utils.load_agent(
         subgoal_set=subgoal_set, use_vlm=True,
         abstract_history=args.abstract_history, only_attend_immediate_media=args.only_attend_immediate_media,
         history_summarization_reduce_repeatedly_ineffective_actions=history_summarization_reduce_repeatedly_ineffective_actions)
+agent.prior_knowledge = args.prior_knowledge
 
 # Define actor-critic algo
 print(f"===>    Initializing the actor-critic algorithm")

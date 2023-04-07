@@ -672,7 +672,7 @@ class HRLAgent(ModelAgent):
         self, model_or_name, argmax,
         skill_library, skill_memory_size, subgoal_set,
         use_vlm=True, abstract_history=False, only_attend_immediate_media=True, history_summarization_reduce_repeatedly_ineffective_actions=True,
-        model_version='current'):
+        model_version='current', prior_knowledge=""):
 
         self.skill_library = skill_library
         self.subgoal_set = subgoal_set
@@ -687,6 +687,8 @@ class HRLAgent(ModelAgent):
                 self.model.cuda()
         else:
             self.model = model_or_name
+
+        self.prior_knowledge = prior_knowledge
 
         # Currently only support training and testing with one environment instance
         self.goal = None
@@ -828,7 +830,7 @@ class HRLAgent(ModelAgent):
         self.history = HRLAgentHistory()
         self.history.goal = goal
         self.history.token_seqs = self.model.tokenizer(
-                self.history.goal+"|image|[start]",
+                f"[prio knowledge: {self.prior_knowledge}]"+f"Mission: {self.history.goal}"+"|image|[start]",
                 return_tensors="pt",
                 padding="max_length",
                 max_length=self.model.max_lang_model_input_len)
