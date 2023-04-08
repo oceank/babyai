@@ -2727,7 +2727,41 @@ class Level_DiscoverHiddenKeyR2(Level_ActionObjDoorR2):
         desc = ObjDesc(hidden_obj.type, hidden_obj.color)
         self.instrs = PickupInstr(desc)
 
+'''
+1 colored ball and 1 box (distractors),
+The env has 1 door, 2 keys, 1 ball, 1 box.
+The box, the ball and one key are distractors.
+Each door or each key may have a color of 'red' or 'green'.
+The ball or the box may have a random color from COLOR_NAMES.
+Subgoals:
+    Open the red door
+    Open the green door
+    Pickup the red key
+    Pickup the green key
+'''
+class Level_UnlockLocalSmallR2(Level_ActionObjDoorR2):
+    def __init__(self, seed=None):
+        super().__init__(seed=seed, door_locked=True)
 
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        door_color = self._rand_elem(['red', 'green'])
+        target_door, _ = self.add_door(i=0, j=0, color=door_color, locked=True, is_open=False)
+
+        for key_color in ['red', 'green']:
+            key, _ = self.add_object(0, 0, 'key', key_color)
+        for obj_type in ['ball', 'box']:
+            obj_color = self._rand_elem(COLOR_NAMES)
+            obj, _ = self.add_object(0, 0, obj_type, obj_color)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_door.type, target_door.color)
+        self.instrs = OpenInstr(desc)
 
 ## High-level tasks
 ### Two-Subgoal Task Group
