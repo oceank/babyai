@@ -2819,14 +2819,14 @@ Keys: red key and green key
 Box: a random color from COLOR_NAMES
 Door: a random color from COLOR_NAMES, closed
 Subgoals:
-    Pickup the red ball
-    Pickup the green ball
-    Pickup the red key
-    Pickup the green key
-    Drop next to the red ball
-    Drop next to the green ball
-    Drop next to the red key
-    Drop next to the green key
+[0] pick up the green ball
+[1] pick up the red ball
+[2] pick up the green key
+[3] pick up the red key
+[4] drop next to the green ball
+[5] drop next to the red ball
+[6] drop next to the green key
+[7] drop next to the red key
 Mission: move one of the balls or keys to one of the balls or keys
 '''
 class Level_Arrangement1R2(Level_ActionObjDoorR2):
@@ -2922,6 +2922,174 @@ class Level_Arrangement2R2(Level_ActionObjDoorR2):
         )
 
         self.instrs = AndInstr(first_instr, second_instr)
+
+'''
+The env has 1 door and 4 balls, and possible has two keys.
+The door is open and has a color from ['red', 'green'].
+The balls are red, green, blue and purple.
+Two balls are in the agent's starting room, while the other two are in the neighbor room.
+If there are two keys, their colors are the same as doors' colors, ['red', 'green'].
+Mission: GoTo the target ball in the neighbor's room.
+'''
+class Level_GoToBallNeighborRoomR2(Level_ActionObjDoorR2):
+    '''
+    Doors are open.
+    '''
+    def __init__(self, seed=None, is_open=True, is_locked=False, has_keys=False):
+        self.is_open = is_open
+        self.is_locked = is_locked
+        self.has_keys = has_keys
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        # Add balls in two rooms and pick one as the target from the neighbor room
+        door_color_list = ['red', 'green']
+        ball_color_list = ['red', 'green', 'blue', 'purple']
+        key_color_list = []
+        if not self.has_keys:
+            ball_colors_neighbor_room = self._rand_subset(ball_color_list, 2)
+        else:
+            key_color_list = door_color_list
+            ball_colors_neighbor_room = self._rand_subset(ball_color_list, 3)
+        ball_colors_starting_room = list(set(ball_color_list) - set(ball_colors_neighbor_room))
+
+        # Add objects for the starting room
+        for color in ball_colors_starting_room:
+            self.add_object(0, 0, 'ball', color)
+        for color in key_color_list:
+            self.add_object(0, 0, 'key', color)
+
+        # Add objects for the neighbor room
+        neighbor_room_objs = [] # all are balls
+        for color in ball_colors_neighbor_room:
+            ball, _ = self.add_object(1, 0, 'ball', color)
+            neighbor_room_objs.append(ball)
+        target_obj = self._rand_elem(neighbor_room_objs)
+
+        # Add an opened door
+        door_color = self._rand_elem(door_color_list)
+        door, _ = self.add_door(i=0, j=0, color=door_color, locked=self.is_locked, is_open=self.is_open)
+
+        # Place the agent
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        desc = ObjDesc(target_obj.type, target_obj.color)
+        self.instrs = GoToInstr(desc)
+
+'''
+Envs without keys: GoToBallNeighborOpenRoomR2 and GoToBallNeighborClosedRoomR2
+'''
+class Level_GoToBallNeighborRoomNoKeyR2(Level_GoToBallNeighborRoomR2):
+    def __init__(self, seed=None, is_open=True, is_locked=False):
+        self.has_keys = False
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked, has_keys=self.has_keys)
+
+'''
+Subgoals: 6
+[0] pass the red door
+[1] pass the green door
+[2] go to the red ball
+[3] go to the green ball
+[4] go to the blue ball
+[5] go to the purple ball
+'''
+class Level_GoToBallNeighborOpenRoomR2(Level_GoToBallNeighborRoomNoKeyR2):
+    '''
+    Doors are open.
+    '''
+    def __init__(self, seed=None, is_open=True, is_locked=False):
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked)
+'''
+Subgoals: 8
+[0] open the red door
+[1] open the green door
+[2] pass the red door
+[3] pass the green door
+[4] go to the red ball
+[5] go to the green ball
+[6] go to the blue ball
+[7] go to the purple ball
+'''
+class Level_GoToBallNeighborClosedRoomR2(Level_GoToBallNeighborRoomNoKeyR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None, is_open=False, is_locked=False):
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked)
+
+'''
+Envs with keys:
+    GoToBallNeighborOpenRoomHasKeyR2
+    GoToBallNeighborClosedRoomHasKeyR2
+    GoToBallNeighborLockedRoomHasKeyR2
+'''
+class Level_GoToBallNeighborRoomHasKeyR2(Level_GoToBallNeighborRoomR2):
+    def __init__(self, seed=None, is_open=True, is_locked=False):
+        self.has_keys = True
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked, has_keys=self.has_keys)
+
+'''
+Subgoals: 6
+[0] pass the red door
+[1] pass the green door
+[2] go to the red ball
+[3] go to the green ball
+[4] go to the blue ball
+[5] go to the purple ball
+'''
+class Level_GoToBallNeighborOpenRoomHasKeyR2(Level_GoToBallNeighborRoomHasKeyR2):
+    '''
+    Doors are open.
+    '''
+    def __init__(self, seed=None, is_open=True, is_locked=False):
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked)
+
+'''
+Subgoals: 8
+[0] open the red door
+[1] open the green door
+[2] pass the red door
+[3] pass the green door
+[4] go to the red ball
+[5] go to the green ball
+[6] go to the blue ball
+[7] go to the purple ball
+'''
+class Level_GoToBallNeighborClosedRoomHasKeyR2(Level_GoToBallNeighborRoomHasKeyR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None, is_open=False, is_locked=False):
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked)
+
+'''
+Subgoals: 10
+[0] open the red door
+[1] open the green door
+[2] pass the red door
+[3] pass the green door
+[4] pick up the red key
+[5] pick up the green key
+[6] go to the red ball
+[7] go to the green ball
+[8] go to the blue ball
+[9] go to the purple ball
+
+'''
+class Level_GoToBallNeighborLockedRoomHasKeyR2(Level_GoToBallNeighborRoomHasKeyR2):
+    '''
+    Doors are locked.
+    '''
+    def __init__(self, seed=None, is_open=False, is_locked=True):
+        super().__init__(seed=seed, is_open=is_open, is_locked=is_locked)
+
+
 
 
 ## High-level tasks

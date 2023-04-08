@@ -194,13 +194,43 @@ class LowlevelInstrSet:
                     subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
                     subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
         return subgoal_instructions_by_skill
+
+    def subgoal_set_for_GoToBallNeighborRoomR2(self, has_key=False, door_state="Open"):
+        door_state = door_state
+        door_locked = door_state == "Locked"
+        door_open = door_state == "Open"
+        door_colors = ['red', 'green']
+        ball_colors = ['red', 'green', 'blue', 'purple']
+        obj_colors = ball_colors # it covers door_colors as well
+        subgoal_instructions_by_skill = {}
+
+        if has_key:
+            obj_types = ['ball', 'door', 'key']
+        else:
+            obj_types = ['ball', 'door']
+        self.list_of_associated_skill_descs = ['GoTo', 'PassDoor']
+        if not door_open:
+            self.list_of_associated_skill_descs.append('OpenDoor')
+        if has_key:
+            self.list_of_associated_skill_descs.append('Pickup')
+        for skill_desc in self.list_of_associated_skill_descs:
+            subgoal_instructions_by_skill[skill_desc] = []
     
-    def subgoal_set_for_Arrangement1R2(self):
-        return self.subgoal_set_for_ArrangementR2()
+        for obj_type in obj_types:
+            for obj_color in obj_colors:
+                obj = ObjDesc(obj_type, color=obj_color)
+                if obj_type == "ball" and (obj_color in ball_colors):
+                    subgoal_instructions_by_skill['GoTo'].append(GoToInstr(obj))
+                elif obj_type == 'door' and (obj_color in door_colors):
+                    subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
+                    if not door_open:
+                        subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
 
-    def subgoal_set_for_Arrangement2R2(self):
-        return self.subgoal_set_for_ArrangementR2()
+                if (obj_type == 'key') and (obj_color in door_colors) and (has_key and door_locked):
+                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
 
+
+        return subgoal_instructions_by_skill
 
 
     def subgoal_set_for_PutNextLocalBallBox(self):
@@ -257,10 +287,19 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_UnlockLocalSmallR2()
         elif subgoal_set_type=="subgoal_set_for_UnblockGoToDoorR2":
             return self.subgoal_set_for_UnblockGoToDoorR2()
-        elif subgoal_set_type=="subgoal_set_for_Arrangement1R2":
-            return self.subgoal_set_for_Arrangement1R2()
-        elif subgoal_set_type=="subgoal_set_for_Arrangement2R2":
-            return self.subgoal_set_for_Arrangement2R2()
+        elif subgoal_set_type=="subgoal_set_for_Arrangement1R2" \
+                or subgoal_set_type=="subgoal_set_for_Arrangement2R2":
+            return self.subgoal_set_for_ArrangementR2()
+        elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborOpenRoomR2":
+            return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=False, door_state="Open")
+        elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborClosedRoomR2":
+            return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=False, door_state="Closed")
+        elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborOpenRoomHasKeyR2":
+            return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=True, door_state="Open")
+        elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborClosedRoomHasKeyR2":
+            return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=True, door_state="Closed")
+        elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborLockedRoomHasKeyR2":
+            return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=True, door_state="Locked")
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
 
