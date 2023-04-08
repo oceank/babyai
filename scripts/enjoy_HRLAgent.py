@@ -80,29 +80,35 @@ if args.seed is None:
 # Set seed for all randomness sources
 utils.seed(args.seed)
 
+
+# Initialize subgoal set
+subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
+subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
+subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_set_type+".txt")
+# If the subgoal set file exists, then do not regenerate it.
+if os.path.exists(subgoal_set_names_fp):
+    subgoal_set_names_fp=None
+subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
+
 # Load skill library
 skill_library = {}
 skill_memory_size = None
 skill_model_names_fp = os.path.join(utils.storage_dir(), "models", args.skill_names_file)
 skill_model_version = 'best'
 with open(skill_model_names_fp, 'r') as f:
-    skill_names = f.readlines()
-    skill_names = [skill_name.strip() for skill_name in skill_names]
+    skill_model_names = f.readlines()
+    skill_model_names = [skill_model_name.strip() for skill_model_name in skill_model_names]
 
-    for skill_model_name in skill_names:
-        skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
-        skill['model'].to(device)
-        skill_library[skill['description']] = skill
-    # assume all skills use the same memory size for their LSTM componenet
-    skill_memory_size = skill['model'].memory_size
-for skill_desc in skill_library:
-    print(skill_desc)
-# Initialize subgoal set
-subgoal_set = LowlevelInstrSet(subgoal_set_type=args.subgoal_set_type)
-subgoal_indices_str = [str(sidx) for sidx in range(subgoal_set.num_subgoals_info['total'])]
-subgoal_set_names_fp = os.path.join(utils.storage_dir(), "models", args.subgoal_set_type+".txt")
-#subgoal_set_names_fp=None
-subgoal_set.display_all_subgoals(print_to_screen=True, file_to_save=subgoal_set_names_fp)
+    for skill_model_name in skill_model_names:
+        for skill_desc in subgoal_set.list_of_associated_skill_descs:
+            if skill_desc in skill_model_name:
+                print(f"======>    Loading the skill {skill_desc} from skill model {skill_model_name}")
+                skill = utils.load_skill(skill_model_name, args.skill_budget_steps, skill_model_version)
+                skill['model'].to(device)
+                skill_library[skill_desc] = skill
+                # assume all skills use the same memory size for their LSTM componenet
+                skill_memory_size = skill['model'].memory_size
+
 
 # Create a random HRL-VLM model as the high-level policy if it does not exist
 abstract_history = True # False: use a full history
@@ -130,7 +136,7 @@ global obs
 obs = env.reset()
 mission = obs["mission"]
 
-# Define and reset the agent
+# Define and reset the agent: note if it uses a full history or an abstract history
 history_summarization_reduce_repeatedly_ineffective_actions= True
 use_vlm = True # use Flamingo model
 agent = utils.load_agent(
@@ -140,6 +146,7 @@ agent = utils.load_agent(
         history_summarization_reduce_repeatedly_ineffective_actions=history_summarization_reduce_repeatedly_ineffective_actions,
         model_version=model_version)
 agent.model.max_lang_model_input_len = args.max_lang_model_input_len
+agent.prior_knowledge = "" #"A closed door can be opened by a key of the same color." #args.prior_knowledge
 agent.set_model_mode(is_training=False)
 
 with torch.no_grad():
