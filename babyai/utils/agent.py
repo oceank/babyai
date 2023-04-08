@@ -830,7 +830,7 @@ class HRLAgent(ModelAgent):
         self.history = HRLAgentHistory()
         self.history.goal = goal
         self.history.token_seqs = self.model.tokenizer(
-                f"[prio knowledge: {self.prior_knowledge}]"+f"Mission: {self.history.goal}"+"|image|[start]",
+                f"[prior knowledge: {self.prior_knowledge}]"+f"Mission: {self.history.goal}"+"|image|[start]",
                 return_tensors="pt",
                 padding="max_length",
                 max_length=self.model.max_lang_model_input_len)
