@@ -2728,7 +2728,6 @@ class Level_DiscoverHiddenKeyR2(Level_ActionObjDoorR2):
         self.instrs = PickupInstr(desc)
 
 '''
-1 colored ball and 1 box (distractors),
 The env has 1 door, 2 keys, 1 ball, 1 box.
 The box, the ball and one key are distractors.
 Each door or each key may have a color of 'red' or 'green'.

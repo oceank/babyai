@@ -144,7 +144,7 @@ class LowlevelInstrSet:
             for obj_color in self.object_colors:
                 obj = ObjDesc(obj_type, color=obj_color)
                 if obj_type == "box":
-                    if obj_color=='purple' and obj_color == 'blue': # there are one blue box and one purple box
+                    if obj_color=='purple' or obj_color == 'blue': # there are one blue box and one purple box
                         subgoal_instructions_by_skill['OpenBox'].append(OpenBoxInstr(obj))
                 elif obj_type == 'key':
                     if obj_color == 'red' or obj_color == 'green':
