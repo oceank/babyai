@@ -181,6 +181,28 @@ class LowlevelInstrSet:
                     subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
         return subgoal_instructions_by_skill
 
+    def subgoal_set_for_ArrangementR2(self):
+        subgoal_instructions_by_skill = {}
+        self.list_of_associated_skill_descs = ['Pickup', 'DropNextTo']
+        for skill_desc in self.list_of_associated_skill_descs:
+            subgoal_instructions_by_skill[skill_desc] = []
+
+        for obj_type in self.object_types:
+            for obj_color in self.object_colors:
+                obj = ObjDesc(obj_type, color=obj_color)
+                if (obj_type == "ball" or obj_type == "key") and (obj_color == 'red' or obj_color == 'green'):
+                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
+                    subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
+        return subgoal_instructions_by_skill
+    
+    def subgoal_set_for_Arrangement1R2(self):
+        return self.subgoal_set_for_ArrangementR2()
+
+    def subgoal_set_for_Arrangement2R2(self):
+        return self.subgoal_set_for_ArrangementR2()
+
+
+
     def subgoal_set_for_PutNextLocalBallBox(self):
         subgoal_instructions_by_skill = {}
         self.list_of_associated_skill_descs = ['OpenBox', 'Pickup', 'DropNextTo']
@@ -235,6 +257,10 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_UnlockLocalSmallR2()
         elif subgoal_set_type=="subgoal_set_for_UnblockGoToDoorR2":
             return self.subgoal_set_for_UnblockGoToDoorR2()
+        elif subgoal_set_type=="subgoal_set_for_Arrangement1R2":
+            return self.subgoal_set_for_Arrangement1R2()
+        elif subgoal_set_type=="subgoal_set_for_Arrangement2R2":
+            return self.subgoal_set_for_Arrangement2R2()
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
 

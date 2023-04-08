@@ -2811,6 +2811,119 @@ class Level_UnblockGoToDoorR2(Level_ActionObjDoorR2):
         desc = ObjDesc(target_door.type, target_door.color)
         self.instrs = GoToInstr(desc)
 
+'''
+The env has 1 door, 2 balls, 2 keys and 1 box.
+Balls and keys are possible objects to arrange.
+Balls: red ball and green ball
+Keys: red key and green key
+Box: a random color from COLOR_NAMES
+Door: a random color from COLOR_NAMES, closed
+Subgoals:
+    Pickup the red ball
+    Pickup the green ball
+    Pickup the red key
+    Pickup the green key
+    Drop next to the red ball
+    Drop next to the green ball
+    Drop next to the red key
+    Drop next to the green key
+Mission: move one of the balls or keys to one of the balls or keys
+'''
+class Level_Arrangement1R2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        door_color = self._rand_elem(COLOR_NAMES)
+        door, _ = self.add_door(i=0, j=0, color=door_color, locked=False, is_open=False)
+
+        box_color = self._rand_elem(COLOR_NAMES)
+        box, _ = self.add_object(0, 0, 'box', box_color)
+
+        objs = []
+        for obj_type in ['ball', 'key']:
+            for color in ['red', 'green']:
+                obj, _ = self.add_object(0, 0, obj_type, color)
+                objs.append(obj)
+        two_objs = self._rand_subset(objs, 2)
+        obj_to_move, obj_fixed = two_objs
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        # Randomly flip the object to be moved
+        if self._rand_bool():
+            t = obj_to_move
+            obj_to_move = obj_fixed
+            obj_fixed = t
+
+        self.instrs = PutNextInstr(
+            ObjDesc(obj_to_move.type, obj_to_move.color),
+            ObjDesc(obj_fixed.type, obj_fixed.color)
+        )
+
+'''
+Randomly select three objects from set of 2 balls and 2 keys.
+Move the first object to the second object.
+Move the second object to the third object.
+'''
+class Level_Arrangement2R2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        door_color = self._rand_elem(COLOR_NAMES)
+        door, _ = self.add_door(i=0, j=0, color=door_color, locked=False, is_open=False)
+
+        box_color = self._rand_elem(COLOR_NAMES)
+        box, _ = self.add_object(0, 0, 'box', box_color)
+
+        objs = []
+        for obj_type in ['ball', 'key']:
+            for color in ['red', 'green']:
+                obj, _ = self.add_object(0, 0, obj_type, color)
+                objs.append(obj)
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        three_objs = self._rand_subset(objs, 3)
+        first_obj, second_obj, third_obj = three_objs
+
+        # Randomly flip the first and second objects
+        if self._rand_bool():
+            t = first_obj
+            first_obj = second_obj
+            second_obj = t
+
+        # Move the first object to the second object
+        first_instr = PutNextInstr(
+            ObjDesc(first_obj.type, first_obj.color),
+            ObjDesc(second_obj.type, second_obj.color)
+        )
+        # Move the second object to the third object
+        second_instr = PutNextInstr(
+            ObjDesc(second_obj.type, second_obj.color),
+            ObjDesc(third_obj.type, third_obj.color)
+        )
+
+        self.instrs = AndInstr(first_instr, second_instr)
+
+
 ## High-level tasks
 ### Two-Subgoal Task Group
 class Level_UnlockLocalR2(Level_ActionObjDoorR2):
