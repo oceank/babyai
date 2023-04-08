@@ -2762,6 +2762,55 @@ class Level_UnlockLocalSmallR2(Level_ActionObjDoorR2):
         desc = ObjDesc(target_door.type, target_door.color)
         self.instrs = OpenInstr(desc)
 
+
+'''
+The env has 1 door, 4 balls.
+The door is clsoded and may have a color of 'red' or 'green'.
+The balls may have a random color from ['red', 'green', 'blue', 'purple'].
+One of the 4 balls is used to blcok the door.
+Subgoals:
+    GoTo the red door
+    GoTo the green door
+    Pickup the red ball
+    Pickup the green ball
+    Pickup the blue ball
+    Pickup the purple ball
+'''
+class Level_UnblockGoToDoorR2(Level_ActionObjDoorR2):
+    # The doos is closed but not locked
+    # The door is blocked by a key, box or ball
+
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+
+        door_color = self._rand_elem(['red', 'green'])
+        target_door, _ = self.add_door(i=0, j=0, color=door_color, locked=False, is_open=False)
+        target_i, target_j = target_door.cur_pos
+
+        # Place the blocker
+        blocker_type = 'ball'
+        blocker_color = self._rand_elem(['red', 'green', 'blue', 'purple'])
+        blocker = WorldObj.decode(OBJECT_TO_IDX[blocker_type], COLOR_TO_IDX[blocker_color], 0)
+        blocker_i = target_i - 1 # the blocker should be on the left of the target door
+        blocker_pos = (blocker_i, target_j)
+        self.grid.set(*blocker_pos, blocker)
+        blocker.init_pos = blocker_pos
+        blocker.cur_pos = blocker_pos
+
+        # Add the rest distracting objects (balls) in the starting room
+        for color in ['red', 'green', 'blue', 'purple']:
+            if color!=blocker_color:
+                obj, _ = self.add_object(0, 0, 'ball', color)
+
+        self.place_agent(i=0, j=0)
+
+        desc = ObjDesc(target_door.type, target_door.color)
+        self.instrs = GoToInstr(desc)
+
 ## High-level tasks
 ### Two-Subgoal Task Group
 class Level_UnlockLocalR2(Level_ActionObjDoorR2):
