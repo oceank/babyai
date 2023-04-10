@@ -1018,7 +1018,6 @@ class HRLAgent(ModelAgent):
     #
     # The agent sits in the index (3, 6) in the partial observation (7X7 grid) and faces left. So, the front cell of the agent is at (3,5) (4rd row, 6th column).
     def summarize_subgoal_history(self):
-        self.current_subgoal_history # update it
         selected_obss_indices = []
         cur_action_idx = 0
 
@@ -1152,10 +1151,22 @@ class HRLAgent(ModelAgent):
         self.current_subgoal_history['rewards'] = [self.current_subgoal_history['rewards'][idx] for idx in selected_obss_indices]
         self.current_subgoal_history['dones'] = [self.current_subgoal_history['dones'][idx] for idx in selected_obss_indices]
 
+    def summarize_subgoal_history_using_key_frames(self):
+        selected_obss_indices = [0, -1] # the first and the last observation of the subgoal
+
+        # update the history of the current subgoal
+        self.current_subgoal_history['lowlevel_time_steps'] = [self.current_subgoal_history['lowlevel_time_steps'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['vis_obss'] = [self.current_subgoal_history['vis_obss'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['lowlevel_actions'] = [self.current_subgoal_history['lowlevel_actions'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['rewards'] = [self.current_subgoal_history['rewards'][idx] for idx in selected_obss_indices]
+        self.current_subgoal_history['dones'] = [self.current_subgoal_history['dones'][idx] for idx in selected_obss_indices]
+
+
     # Update the history with the current subgoal's (summarized) history
     def update_history(self):
         if self.abstract_history:
-            self.summarize_subgoal_history()
+            self.summarize_subgoal_history_using_key_frames()
+            #self.summarize_subgoal_history()
 
         self.history.lowlevel_time_steps.extend(self.current_subgoal_history['lowlevel_time_steps'])
         self.history.vis_obss.extend(self.current_subgoal_history['vis_obss'])
