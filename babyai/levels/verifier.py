@@ -229,9 +229,27 @@ class LowlevelInstrSet:
                 if (obj_type == 'key') and (obj_color in door_colors) and (has_key and door_locked):
                     subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
 
-
         return subgoal_instructions_by_skill
 
+
+    def subgoal_set_for_MoveToNeighborClosedRoomR2(self):
+        subgoal_instructions_by_skill = {}
+        self.list_of_associated_skill_descs = ['OpenDoor', 'PassDoor', 'Pickup', 'DropNextTo']
+        for skill_desc in self.list_of_associated_skill_descs:
+            subgoal_instructions_by_skill[skill_desc] = []
+
+        for obj_type in self.object_types:
+            for obj_color in self.object_colors:
+                obj = ObjDesc(obj_type, color=obj_color)
+                if obj_type == "door" and obj_color == "yellow":
+                    subgoal_instructions_by_skill['OpenDoor'].append(OpenInstr(obj))
+                    subgoal_instructions_by_skill['PassDoor'].append(PassInstr(obj))
+                elif obj_type == "box" and obj_color == "blue":
+                    subgoal_instructions_by_skill['DropNextTo'].append(DropNextInstr(obj_carried=None, obj_fixed=obj, initially_carried_world_obj=None))
+                elif obj_type == "ball" and obj_color in ["red", "green"]:
+                    subgoal_instructions_by_skill['Pickup'].append(PickupInstr(obj))
+
+        return subgoal_instructions_by_skill
 
     def subgoal_set_for_PutNextLocalBallBox(self):
         subgoal_instructions_by_skill = {}
@@ -300,6 +318,8 @@ class LowlevelInstrSet:
             return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=True, door_state="Closed")
         elif subgoal_set_type=="subgoal_set_for_GoToBallNeighborLockedRoomHasKeyR2":
             return self.subgoal_set_for_GoToBallNeighborRoomR2(has_key=True, door_state="Locked")
+        elif subgoal_set_type=="subgoal_set_for_MoveToNeighborClosedRoomR2":
+            return self.subgoal_set_for_MoveToNeighborClosedRoomR2()
         else:
             raise ValueError("Unknown subgoal set type: %s" % subgoal_set_type)
 

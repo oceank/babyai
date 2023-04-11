@@ -2924,6 +2924,55 @@ class Level_Arrangement2R2(Level_ActionObjDoorR2):
         self.instrs = AndInstr(first_instr, second_instr)
 
 '''
+The env has 1 yellow closed door, 1 red ball, 1 green ball, 1 blue box, 1 purple key.
+Subgoals:
+[0] open the yellow door
+[1] pass the yellow door
+[2] pick up the green ball
+[3] pick up the red ball
+[4] drop next to the blue box
+Mission: move one of the balls to the box in the neighbor closed room
+'''
+class Level_MoveToNeighborClosedRoomR2(Level_ActionObjDoorR2):
+    '''
+    Doors are closed.
+    '''
+    def __init__(self, seed=None):
+        super().__init__(seed=seed)
+
+    # For member functions, add_distractors, add_door, place_agent,
+    # their arguments i and j correspond to the column and row of the grid.
+    def gen_mission(self):
+        door_color = 'yellow'
+        door, _ = self.add_door(i=0, j=0, color=door_color, locked=False, is_open=False)
+
+        box_color = 'blue'
+        box, _ = self.add_object(1, 0, 'box', box_color)
+
+        key_color = self._rand_elem(['purple', 'yellow', 'blue','grey'])
+        key, _ = self.add_object(1, 0, 'key', key_color)
+        distractor_ball_color = self._rand_elem(['purple', 'yellow', 'blue','grey'])
+        distractor_ball, _ = self.add_object(1, 0, 'ball', distractor_ball_color)
+
+        balls = []
+        for color in ['red', 'green']:
+            ball, _ = self.add_object(0, 0, 'ball', color)
+            balls.append(ball)
+
+
+        self.place_agent(i=0, j=0)
+
+        # Make sure no unblocking is required
+        self.check_objs_reachable()
+
+        ball_to_pick = self._rand_elem(balls)
+
+        self.instrs = PutNextInstr(
+            ObjDesc(ball_to_pick.type, ball_to_pick.color),
+            ObjDesc(box.type, box.color)
+        )
+
+'''
 The env has 1 door and 4 balls, and possible has two keys.
 The door is open and has a color from ['red', 'green'].
 The balls are red, green, blue and purple.
