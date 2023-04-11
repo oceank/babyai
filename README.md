@@ -43,13 +43,34 @@ source activate cgsul
 conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
 ```
 
-### Step 3: install FlamingoGPT2, gym-minigrid, and babyai using in the editable mode
+### Step 3: install flamingo-pytorch and transformers
+
+#### flamingo-pytorch
+```
+cd ..
+git clone git@github.com:oceank/flamingo-pytorch.git
+cd flamingo-pytorch
+git checkout cgsul
+pip install --editable .
+```
+
+#### transformers
+```
+cd ..
+git clone git@github.com:oceank/transformers.git
+cd transformers
+git checkout cgsul
+pip install --editable .
+```
+
+### Step 4: install FlamingoGPT2, gym-minigrid, and babyai using in the editable mode
 
 #### FlamingoGPT2
 ```
 cd ..
 git clone git@github.com:oceank/cgsul.git
 cd cgsul
+git checkout cgsul
 pip install --editable .
 ```
 
