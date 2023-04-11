@@ -33,6 +33,7 @@ Use conda to create an environment (say, cgsul) with all the dependencies by run
 ```
 git clone -b cgsul git@github.com:oceank/babyai.git
 cd babyai
+git checkcout cgsul-dev-subgoals
 conda env create -f environment.yaml
 source activate cgsul
 ```
@@ -50,7 +51,7 @@ conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
 cd ..
 git clone git@github.com:oceank/flamingo-pytorch.git
 cd flamingo-pytorch
-git checkout cgsul
+git checkout cgsul-dev
 pip install --editable .
 ```
 
@@ -59,7 +60,7 @@ pip install --editable .
 cd ..
 git clone git@github.com:oceank/transformers.git
 cd transformers
-git checkout cgsul
+git checkout cgsul-dev
 pip install --editable .
 ```
 
@@ -70,7 +71,7 @@ pip install --editable .
 cd ..
 git clone git@github.com:oceank/cgsul.git
 cd cgsul
-git checkout cgsul
+git checkout dev
 pip install --editable .
 ```
 
@@ -79,12 +80,14 @@ pip install --editable .
 cd ..
 git clone -b cgsul git@github.com:oceank/gym-minigrid.git
 cd gym-minigrid
+git checkout cgsul-dev
 pip install --editable .
 ```
 
 #### babyai
 ```
 cd ../babyai
+git checkcout cgsul-dev-subgoals
 pip install --editable .
 ```
 
