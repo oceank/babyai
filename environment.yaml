@@ -8,6 +8,8 @@ dependencies:
   - numpy
   - blosc
   - matplotlib
+  - scikit-learn
+  - tensorboardx
   - pip
   - pip:
     - gym==0.21.0
