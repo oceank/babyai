@@ -2412,6 +2412,11 @@ class Level_ActionObjDoorR2(RoomGridLevel):
             seed=seed
         )
 
+    def reset(self, **kwargs):
+        obs = super().reset(**kwargs)
+        self.max_steps = 128
+        return obs
+
     # For member functions, add_distractors, add_door, place_agent,
     # their arguments i and j correspond to the column and row of the grid.
     def gen_mission(self):
