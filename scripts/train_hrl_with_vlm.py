@@ -129,11 +129,15 @@ parser.add_argument("--lang-model-train-mode", type=str, default='FrozenAll',
 parser.add_argument("--prior-knowledge", type=str, default="",
                     help="List of sentences describing the agent's prior knowledge of the environment.")
 
+parser.add_argument("--pytorch-num-threads", type=int, default=16)
+
 args = parser.parse_args()
 if args.demos_name == 'None':
     args.demos_name = None
 if args.model == 'None':
     args.model = None
+
+torch.set_num_threads(args.pytorch_num_threads)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
