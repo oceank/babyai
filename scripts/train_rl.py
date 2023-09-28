@@ -101,6 +101,10 @@ parser.add_argument("--average-loss-by-subgoals", action="store_true", default=F
 parser.add_argument("--episode-weight-type", type=int, default=0,
                     help="0 indicates all subgoals has the same weight when calculating averaged loss of a batch; 1 indicates each subgoal has a weight of 1/num_subgoals_in_episode.")
 
+
+parser.add_argument("--lang-model-train-mode", type=str, default='FrozenAll',
+                    help="Train mode for the language part of the Flamingo model. The default mode is to frozen the entire pretrained language part.")
+
 args = parser.parse_args()
 
 utils.seed(args.seed)
@@ -237,7 +241,8 @@ if args.use_vlm:
                                      # It should be smaller than the sequence length of the image tokens
         perceiver_depth = 2,         # perceiver resampler depth
         perceiver_num_time_embeds = args.max_history_window_vlm,#16, 8
-        only_attend_immediate_media=True
+        only_attend_immediate_media=True,
+        lang_model_train_mode = args.lang_model_train_mode, # TuneAll
     )
 
 
