@@ -36,6 +36,9 @@ from babyai.utils.model import create_random_hrl_vlm_model, load_model
 from babyai.levels.verifier import LowlevelInstrSet
 from sklearn.model_selection import train_test_split
 
+max_split_size_mb=256
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = f"max_split_size_mb:{max_split_size_mb}"
+
 # Parse arguments
 parser = ArgumentParser()
 parser.add_argument("--algo", default='ppo',
@@ -138,6 +141,7 @@ if args.model == 'None':
     args.model = None
 
 torch.set_num_threads(args.pytorch_num_threads)
+torch.cuda.empty_cache()
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 utils.seed(args.seed)
