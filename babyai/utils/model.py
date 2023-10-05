@@ -178,7 +178,10 @@ def create_random_hrl_vlm_model(
         max_lang_model_input_len=max_lang_model_input_len,)
 
     print_details = True
+    print("Flamingo-based Actor-Critic Model:")
     print_trainable_parameters(acmodel, print_details=print_details)
+    print("Language model inside Flamingo:")
+    print_trainable_parameters(lang_model, print_details=print_details)
 
     return acmodel, model_name
 
